@@ -1,0 +1,196 @@
+version: '3.8'
+
+services:
+  # ==================== 应用服务 ====================
+  spu-cache-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spu-cache-service
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - REDIS_NODE_1=redis-node-1:6379
+      - REDIS_NODE_2=redis-node-2:6379
+      - REDIS_NODE_3=redis-node-3:6379
+      - MC_PRIMARY_SERVERS=memcached-1:11211,memcached-2:11211
+      - MC_BACKUP_SERVERS=memcached-3:11211
+      - ROCKETMQ_NAMESRV=rocketmq-namesrv:9876
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - memcached-1
+      - memcached-2
+      - rocketmq-namesrv
+    networks:
+      - cache-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==================== Redis Cluster ====================
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: redis-node-1
+    ports:
+      - "7001:6379"
+    command: redis-server --appendonly yes --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    volumes:
+      - redis-data-1:/data
+    networks:
+      - cache-network
+
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: redis-node-2
+    ports:
+      - "7002:6379"
+    command: redis-server --appendonly yes --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    volumes:
+      - redis-data-2:/data
+    networks:
+      - cache-network
+
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: redis-node-3
+    ports:
+      - "7003:6379"
+    command: redis-server --appendonly yes --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    volumes:
+      - redis-data-3:/data
+    networks:
+      - cache-network
+
+  # Redis Cluster 初始化
+  redis-cluster-init:
+    image: redis:7-alpine
+    container_name: redis-cluster-init
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+    command: >
+      sh -c "sleep 5 && 
+             redis-cli --cluster create 
+               redis-node-1:6379 
+               redis-node-2:6379 
+               redis-node-3:6379 
+               --cluster-replicas 0 --cluster-yes"
+    networks:
+      - cache-network
+
+  # ==================== Memcached ====================
+  memcached-1:
+    image: memcached:1.6-alpine
+    container_name: memcached-1
+    ports:
+      - "11211:11211"
+    command: memcached -m 512 -c 1024 -t 4
+    networks:
+      - cache-network
+
+  memcached-2:
+    image: memcached:1.6-alpine
+    container_name: memcached-2
+    ports:
+      - "11212:11211"
+    command: memcached -m 512 -c 1024 -t 4
+    networks:
+      - cache-network
+
+  memcached-3:
+    image: memcached:1.6-alpine
+    container_name: memcached-3
+    ports:
+      - "11213:11211"
+    command: memcached -m 512 -c 1024 -t 4
+    networks:
+      - cache-network
+
+  # ==================== RocketMQ ====================
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.1.0
+    container_name: rocketmq-namesrv
+    ports:
+      - "9876:9876"
+    command: sh mqnamesrv
+    environment:
+      - JAVA_OPT_EXT=-Xms256m -Xmx256m
+    networks:
+      - cache-network
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.1.0
+    container_name: rocketmq-broker
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    depends_on:
+      - rocketmq-namesrv
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/conf/broker.conf
+    environment:
+      - JAVA_OPT_EXT=-Xms512m -Xmx512m
+    volumes:
+      - rocketmq-data:/home/rocketmq/store
+    networks:
+      - cache-network
+
+  # ==================== 监控 ====================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - cache-network
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - cache-network
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    container_name: redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis-node-1:6379,redis://redis-node-2:6379,redis://redis-node-3:6379
+    depends_on:
+      - redis-node-1
+    networks:
+      - cache-network
+
+networks:
+  cache-network:
+    driver: bridge
+
+volumes:
+  redis-data-1:
+  redis-data-2:
+  redis-data-3:
+  rocketmq-data:
+  prometheus-data:
+  grafana-data:

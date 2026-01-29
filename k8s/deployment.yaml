@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spu-cache-service
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: spu-cache-service
+  template:
+    metadata:
+      labels:
+        app: spu-cache-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      containers:
+        - name: spu-cache-service
+          image: spu-cache-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: JAVA_OPTS
+              value: "-Xms2g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 --enable-preview"
+            - name: JAVA_TOOL_OPTIONS
+              value: "--enable-preview"
+            - name: REDIS_CLUSTER_NODES
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: redis.cluster.nodes
+            - name: MEMCACHED_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: memcached.servers
+            - name: ROCKETMQ_NAMESRV
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: rocketmq.namesrv
+            - name: MYSQL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.url
+            - name: MYSQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.password
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /actuator/probes/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/probes/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/probes/startup
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - spu-cache-service
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spu-cache-service
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: spu-cache-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: spu-cache-service-hpa
+  namespace: spu-cache
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: spu-cache-service
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spu-cache-config
+  namespace: spu-cache
+data:
+  redis.cluster.nodes: "redis-cluster-0:6379,redis-cluster-1:6379,redis-cluster-2:6379"
+  memcached.servers: "memcached-0:11211,memcached-1:11211,memcached-2:11211"
+  rocketmq.namesrv: "rocketmq-namesrv:9876"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spu-cache-secret
+  namespace: spu-cache
+type: Opaque
+stringData:
+  mysql.url: "jdbc:mysql://mysql:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai"
+  mysql.username: "spu_cache"
+  mysql.password: "YourSecurePassword123!"

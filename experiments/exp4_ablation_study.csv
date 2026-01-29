@@ -1,0 +1,7 @@
+Configuration,QPS,Fidelity,ΔF,p-value
+Full System,150M,0.9999778,---,---
+w/o Surface Code,154M,0.9999778,---,---
+w/o Color Code,152M,0.9999778,---,---
+w/o Topological,153M,0.9953309,---,---
+w/o V15 Module,50M,0.9999778,---,---
+Single QEC Layer,156M,0.9577198,-1×,---

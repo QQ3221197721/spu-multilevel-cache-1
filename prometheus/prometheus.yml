@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/cache_alerts.yml
+
+scrape_configs:
+  # Spring Boot 应用指标
+  - job_name: 'spu-cache-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets:
+          - spu-cache-service:8080
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Redis Exporter
+  - job_name: 'redis-cluster'
+    static_configs:
+      - targets:
+          - redis-exporter:9121
+
+  # Prometheus 自身
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - localhost:9090

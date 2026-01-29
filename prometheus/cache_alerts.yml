@@ -1,0 +1,195 @@
+groups:
+  - name: cache-alerts
+    rules:
+      # ==================== 命中率告警 ====================
+      
+      # Redis 缓存命中率低于 90%
+      - alert: RedisCacheHitRateLow
+        expr: |
+          (
+            sum(rate(redis_keyspace_hits_total[5m])) /
+            (sum(rate(redis_keyspace_hits_total[5m])) + sum(rate(redis_keyspace_misses_total[5m])))
+          ) < 0.9
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "Redis 缓存命中率低于 90%"
+          description: "Redis 集群命中率 {{ $value | printf \"%.2f\" }}，持续 2 分钟，请检查热点 Key 或缓存策略"
+          runbook_url: "https://wiki.company.com/cache/redis-hitrate-low"
+
+      # Caffeine 本地缓存命中率低于 30%
+      - alert: CaffeineCacheHitRateLow
+        expr: |
+          caffeine_cache_hit_rate{cache="spu_local_cache"} < 0.3
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "Caffeine 本地缓存命中率低于 30%"
+          description: "实例 {{ $labels.instance }} 本地缓存命中率 {{ $value | printf \"%.2f\" }}"
+
+      # 总缓存命中率低于 95%
+      - alert: TotalCacheHitRateLow
+        expr: |
+          (
+            sum(rate(cache_hits_total[5m])) /
+            sum(rate(cache_requests_total[5m]))
+          ) < 0.95
+        for: 5m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "总缓存命中率低于 95%"
+          description: "多级缓存总命中率 {{ $value | printf \"%.2f\" }}，低于目标 95%"
+
+      # ==================== 资源告警 ====================
+
+      # Redis 连接数过高
+      - alert: RedisConnectedClientsHigh
+        expr: redis_connected_clients > 8000
+        for: 1m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "Redis 连接数过高"
+          description: "Redis {{ $labels.instance }} 连接数 {{ $value }}，接近上限 10000"
+
+      # Redis OPS 过高
+      - alert: RedisOpsPerSecHigh
+        expr: redis_instantaneous_ops_per_sec > 80000
+        for: 1m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "Redis OPS 过高"
+          description: "Redis {{ $labels.instance }} OPS {{ $value }}，接近性能瓶颈"
+
+      # Redis 内存使用率过高
+      - alert: RedisMemoryUsageHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "Redis 内存使用率过高"
+          description: "Redis {{ $labels.instance }} 内存使用率 {{ $value | printf \"%.2f\" }}%，超过 85%"
+
+      # Redis 淘汰 Key 过多
+      - alert: RedisEvictedKeysHigh
+        expr: rate(redis_evicted_keys_total[5m]) > 100
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "Redis 淘汰 Key 过多"
+          description: "Redis {{ $labels.instance }} 每秒淘汰 {{ $value | printf \"%.0f\" }} 个 Key"
+
+      # ==================== 异常告警 ====================
+
+      # 缓存穿透检测（DB 查询突增）
+      - alert: CachePenetrationDetected
+        expr: |
+          sum(rate(cache_db_queries_total[1m])) > 1000
+        for: 1m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "疑似缓存穿透"
+          description: "DB 查询 QPS {{ $value | printf \"%.0f\" }}，疑似缓存穿透攻击"
+
+      # 缓存击穿检测（锁等待过长）
+      - alert: CacheBreakdownDetected
+        expr: |
+          histogram_quantile(0.99, rate(cache_lock_wait_seconds_bucket[5m])) > 2
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "疑似缓存击穿"
+          description: "缓存锁等待 TP99 {{ $value | printf \"%.2f\" }}s，可能存在热点 Key 击穿"
+
+      # 缓存雪崩风险
+      - alert: CacheAvalancheRisk
+        expr: |
+          sum(cache_expiring_keys_1min) / sum(cache_hotkey_count) > 0.2
+        for: 1m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "缓存雪崩风险"
+          description: "{{ $value | printf \"%.0f\" }}% 的热点 Key 即将在 1 分钟内过期"
+
+      # ==================== 延迟告警 ====================
+
+      # 缓存失效延迟过高
+      - alert: CacheInvalidateDelayHigh
+        expr: |
+          histogram_quantile(0.99, rate(cache_invalidate_latency_seconds_bucket[5m])) > 3
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "缓存失效延迟过高"
+          description: "缓存失效 TP99 延迟 {{ $value | printf \"%.2f\" }}s，超过 3s 阈值"
+
+      # 接口响应延迟过高
+      - alert: SpuDetailLatencyHigh
+        expr: |
+          histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{uri="/api/spu/detail"}[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "SPU 详情接口 TP99 延迟过高"
+          description: "TP99 延迟 {{ $value | printf \"%.3f\" }}s，超过 50ms 阈值"
+
+      # ==================== 热点 Key 告警 ====================
+
+      # 热点 Key 数量过多
+      - alert: HotKeyCountHigh
+        expr: cache_hotkey_count > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "热点 Key 数量过多"
+          description: "当前热点 Key 数量 {{ $value }}，可能存在流量倾斜"
+
+      # 单个热点 Key QPS 过高
+      - alert: SingleHotKeyQpsHigh
+        expr: max(cache_hotkey_qps) > 10000
+        for: 1m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "单个热点 Key QPS 过高"
+          description: "单 Key QPS {{ $value | printf \"%.0f\" }}，超过 10K 阈值，已触发自动分片"
+
+      # ==================== 布隆过滤器告警 ====================
+
+      # 布隆过滤器填充率过高
+      - alert: BloomFilterFillRateHigh
+        expr: |
+          cache_bloom_filter_count / cache_bloom_filter_expected_insertions > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "布隆过滤器填充率过高"
+          description: "填充率 {{ $value | printf \"%.2f\" }}，接近容量上限，误判率可能上升"

@@ -1,0 +1,253 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "spu-cache-dashboard",
+    "title": "SPU 多级缓存监控",
+    "tags": ["cache", "redis", "caffeine", "spu"],
+    "timezone": "browser",
+    "refresh": "5s",
+    "schemaVersion": 38,
+    "panels": [
+      {
+        "id": 1,
+        "title": "缓存总命中率",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "(sum(rate(cache_hits_total[5m])) / sum(rate(cache_requests_total[5m]))) * 100",
+            "legendFormat": "总命中率"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 90},
+                {"color": "green", "value": 95}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "各层缓存命中率趋势",
+        "type": "timeseries",
+        "gridPos": {"x": 6, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "caffeine_cache_hit_rate{cache=\"spu_local_cache\"} * 100",
+            "legendFormat": "L1 Caffeine"
+          },
+          {
+            "expr": "(sum(rate(redis_keyspace_hits_total[1m])) / (sum(rate(redis_keyspace_hits_total[1m])) + sum(rate(redis_keyspace_misses_total[1m])))) * 100",
+            "legendFormat": "L2 Redis"
+          },
+          {
+            "expr": "(sum(rate(memcached_hits_total[1m])) / (sum(rate(memcached_hits_total[1m])) + sum(rate(memcached_misses_total[1m])))) * 100",
+            "legendFormat": "L3 Memcached"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 10
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "L1 本地缓存",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 3},
+        "targets": [
+          {
+            "expr": "caffeine_cache_hit_rate{cache=\"spu_local_cache\"} * 100",
+            "legendFormat": "命中率"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 25},
+                {"color": "green", "value": 35}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "L1 缓存大小",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 3, "w": 6, "h": 3},
+        "targets": [
+          {
+            "expr": "caffeine_cache_size{cache=\"spu_local_cache\"}",
+            "legendFormat": "缓存条目"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "响应延迟分布",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{uri=\"/api/spu/detail\"}[1m])) * 1000",
+            "legendFormat": "TP50"
+          },
+          {
+            "expr": "histogram_quantile(0.90, rate(http_request_duration_seconds_bucket{uri=\"/api/spu/detail\"}[1m])) * 1000",
+            "legendFormat": "TP90"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{uri=\"/api/spu/detail\"}[1m])) * 1000",
+            "legendFormat": "TP99"
+          },
+          {
+            "expr": "histogram_quantile(0.999, rate(http_request_duration_seconds_bucket{uri=\"/api/spu/detail\"}[1m])) * 1000",
+            "legendFormat": "TP999"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "custom": {"lineWidth": 2}
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "QPS 趋势",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{uri=\"/api/spu/detail\"}[1m]))",
+            "legendFormat": "API QPS"
+          },
+          {
+            "expr": "sum(rate(redis_instantaneous_ops_per_sec[1m]))",
+            "legendFormat": "Redis OPS"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {"lineWidth": 2}
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Redis 集群状态",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 16, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "sum(redis_connected_clients)",
+            "legendFormat": "连接数"
+          },
+          {
+            "expr": "sum(rate(redis_evicted_keys_total[5m]))",
+            "legendFormat": "淘汰速率"
+          },
+          {
+            "expr": "avg(redis_memory_used_bytes / redis_memory_max_bytes) * 100",
+            "legendFormat": "内存使用率"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "热点 Key 统计",
+        "type": "stat",
+        "gridPos": {"x": 8, "y": 16, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "cache_hotkey_count",
+            "legendFormat": "热点 Key 数"
+          },
+          {
+            "expr": "max(cache_hotkey_qps)",
+            "legendFormat": "最高 QPS"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "布隆过滤器",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 16, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "cache_bloom_filter_count",
+            "legendFormat": "已存储元素"
+          },
+          {
+            "expr": "cache_bloom_filter_count / cache_bloom_filter_expected_insertions * 100",
+            "legendFormat": "填充率"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "热点 Key Top 10",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "topk(10, cache_hotkey_qps)",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "Value": "QPS",
+                "key": "Key"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "缓存异常统计",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(cache_penetration_total[5m]))",
+            "legendFormat": "穿透次数"
+          },
+          {
+            "expr": "sum(rate(cache_breakdown_total[5m]))",
+            "legendFormat": "击穿次数"
+          },
+          {
+            "expr": "sum(rate(cache_db_queries_total[5m]))",
+            "legendFormat": "DB 查询"
+          }
+        ]
+      }
+    ]
+  }
+}

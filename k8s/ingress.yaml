@@ -1,0 +1,69 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spu-cache-ingress
+  namespace: spu-cache
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "1000"
+    nginx.ingress.kubernetes.io/limit-connections: "500"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-User-Id"
+spec:
+  rules:
+    - host: spu-cache.example.com
+      http:
+        paths:
+          - path: /api/spu
+            pathType: Prefix
+            backend:
+              service:
+                name: spu-cache-service
+                port:
+                  number: 8080
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: spu-cache-service
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - spu-cache.example.com
+      secretName: spu-cache-tls
+---
+# 灰度 Ingress（canary）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spu-cache-canary-ingress
+  namespace: spu-cache
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"
+    nginx.ingress.kubernetes.io/canary-by-header: "canary"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "1"
+spec:
+  rules:
+    - host: spu-cache.example.com
+      http:
+        paths:
+          - path: /api/spu
+            pathType: Prefix
+            backend:
+              service:
+                name: spu-cache-service-canary
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - spu-cache.example.com
+      secretName: spu-cache-tls

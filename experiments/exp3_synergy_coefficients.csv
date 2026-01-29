@@ -1,0 +1,8 @@
+Config,ξ (measured),ξ (predicted),Ratio,Derived α
+Surface only,46.5 ± 0.5,---,---,---
+Color only,23.8 ± 0.2,---,---,---
+Topological only,154.1 ± 1.5,---,---,---
+Surface+Color,1392.8 ± 10.6,1126,1.24,α = 0.23 ± 0.02
+Surface+Topo,8786.7 ± 80.7,7388,1.19,α = 0.18 ± 0.02
+Color+Topo,4894.8 ± 44.5,3718,1.32,α = 0.31 ± 0.02
+All three,334179.7 ± 4295.9,175841,1.90,Higher-order

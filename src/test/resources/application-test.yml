@@ -1,0 +1,56 @@
+# ========================================
+# SPU 多级缓存服务 - 测试环境配置
+# ========================================
+
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  # 使用 H2 内存数据库
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+
+  # 禁用 Redis（测试环境使用 Mock）
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+# RocketMQ 测试配置（禁用）
+rocketmq:
+  name-server: localhost:9876
+  producer:
+    group: test_group
+    send-message-timeout: 1000
+
+# 缓存配置 - 测试环境
+cache:
+  l1:
+    max-size: 100
+    expire-seconds: 10
+  hot-key:
+    qps-threshold: 10
+    window-size-seconds: 5
+
+# 日志级别
+logging:
+  level:
+    com.ecommerce.cache: DEBUG
+    org.springframework: INFO
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
