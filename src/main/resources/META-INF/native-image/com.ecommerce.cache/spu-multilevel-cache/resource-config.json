@@ -1,0 +1,22 @@
+{
+  "resources": {
+    "includes": [
+      {"pattern": "\\Qapplication.yml\\E"},
+      {"pattern": "\\Qapplication-dev.yml\\E"},
+      {"pattern": "\\Qapplication-prod.yml\\E"},
+      {"pattern": "\\Qapplication-test.yml\\E"},
+      {"pattern": "\\Qbootstrap.yml\\E"},
+      {"pattern": "\\Qlogback-spring.xml\\E"},
+      {"pattern": "\\Qlua/.*\\E"},
+      {"pattern": "\\Qdb/migration/.*\\E"},
+      {"pattern": "\\QMETA-INF/spring.factories\\E"},
+      {"pattern": "\\QMETA-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports\\E"},
+      {"pattern": "\\QMETA-INF/native-image/.*\\E"},
+      {"pattern": "\\Qbanner.txt\\E"}
+    ]
+  },
+  "bundles": [
+    {"name": "messages"},
+    {"name": "ValidationMessages"}
+  ]
+}

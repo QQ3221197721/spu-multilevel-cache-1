@@ -1,0 +1,117 @@
+# ============================================================
+# Chaos Mesh — 定时混沌实验（持续验证系统韧性）
+# ============================================================
+# 定期自动执行混沌实验，确保系统在持续演进中保持韧性。
+# 建议在 staging 环境开启，生产环境仅在维护窗口执行。
+# ============================================================
+
+# ---- 定时实验1：每天凌晨 3 点执行 Pod Kill ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: spu-cache-daily-pod-kill
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: schedule
+    experiment: daily-pod-kill
+spec:
+  schedule: "0 3 * * *"
+  startingDeadlineSeconds: 300
+  concurrencyPolicy: Forbid
+  historyLimit: 10
+  type: PodChaos
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - spu-cache
+      labelSelectors:
+        app: spu-cache-service
+    gracePeriod: 0
+---
+# ---- 定时实验2：每周三执行网络延迟测试 ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: spu-cache-weekly-network-delay
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: schedule
+    experiment: weekly-network-delay
+spec:
+  schedule: "0 4 * * 3"
+  startingDeadlineSeconds: 300
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  type: NetworkChaos
+  networkChaos:
+    action: delay
+    mode: all
+    selector:
+      namespaces:
+        - spu-cache
+      labelSelectors:
+        app: spu-cache-service
+    delay:
+      latency: "100ms"
+      jitter: "30ms"
+    direction: both
+    duration: "300s"
+---
+# ---- 定时实验3：每月1日执行完整混沌工作流 ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: spu-cache-monthly-full-chaos
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: schedule
+    experiment: monthly-full-chaos
+spec:
+  schedule: "0 2 1 * *"
+  startingDeadlineSeconds: 600
+  concurrencyPolicy: Forbid
+  historyLimit: 3
+  type: Workflow
+  workflow:
+    entry: full-chaos-test
+    templates:
+      - name: full-chaos-test
+        templateType: Serial
+        deadline: "20m"
+        children:
+          - monthly-network-test
+          - monthly-pod-test
+
+      - name: monthly-network-test
+        templateType: NetworkChaos
+        deadline: "5m"
+        networkChaos:
+          action: delay
+          mode: all
+          selector:
+            namespaces:
+              - spu-cache
+            labelSelectors:
+              app: spu-cache-service
+          delay:
+            latency: "50ms"
+          direction: both
+          duration: "180s"
+
+      - name: monthly-pod-test
+        templateType: PodChaos
+        deadline: "3m"
+        podChaos:
+          action: pod-kill
+          mode: one
+          selector:
+            namespaces:
+              - spu-cache
+            labelSelectors:
+              app: spu-cache-service
+          gracePeriod: 0

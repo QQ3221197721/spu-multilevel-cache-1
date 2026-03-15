@@ -1,0 +1,87 @@
+# ============================================================
+# Istio Sidecar — 限定 Envoy 代理的监听范围
+# ============================================================
+# 减少 Envoy Sidecar 的内存占用和配置推送量：
+#   - 仅监听 spu-cache-service 实际需要访问的服务端口
+#   - 避免全 mesh 服务发现带来的资源浪费
+# ============================================================
+
+apiVersion: networking.istio.io/v1beta1
+kind: Sidecar
+metadata:
+  name: spu-cache-sidecar
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  workloadSelector:
+    labels:
+      app: spu-cache-service
+  # 入站配置
+  ingress:
+    - port:
+        number: 8080
+        protocol: HTTP
+        name: http
+      defaultEndpoint: 127.0.0.1:8080
+  # 出站配置 — 仅允许访问已知依赖服务
+  egress:
+    # 同命名空间所有服务（数据库、中间件等）
+    - hosts:
+        - "./*"
+    # Istio 系统命名空间（遥测上报等）
+    - hosts:
+        - "istio-system/*"
+    # 监控命名空间
+    - hosts:
+        - "monitoring/*"
+    # 日志命名空间
+    - hosts:
+        - "logging/*"
+    # Kube 系统（DNS 等）
+    - hosts:
+        - "kube-system/*"
+---
+# ============================================================
+# Istio EnvoyFilter — 自定义 Envoy 过滤器（高级调优）
+# ============================================================
+# 添加自定义响应头，支持链路追踪和缓存调试
+# ============================================================
+
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: spu-cache-response-headers
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  workloadSelector:
+    labels:
+      app: spu-cache-service
+  configPatches:
+    # 添加自定义响应头
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_response(response_handle)
+                -- 添加 Mesh 标识头
+                response_handle:headers():add("x-mesh-sidecar", "istio")
+                -- 添加服务版本标识
+                response_handle:headers():add("x-service-mesh", "enabled")
+              end

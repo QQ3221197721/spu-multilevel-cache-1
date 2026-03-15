@@ -1,0 +1,116 @@
+# ============================================================
+# eBPF 可观测性 — Cilium Hubble L7 流量可视化
+# ============================================================
+# 前置条件：集群使用 Cilium CNI 并已安装 Hubble
+# 功能：
+#   - L3/L4/L7 流量监控（HTTP、gRPC、DNS）
+#   - 服务依赖拓扑图
+#   - DNS 查询追踪
+#   - TCP/UDP 连接监控
+# ============================================================
+
+# Hubble 开启 L7 协议可视化
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: spu-cache-hubble-l7
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    observability: ebpf
+spec:
+  endpointSelector:
+    matchLabels:
+      app: spu-cache-service
+  # 入站 L7 策略 — 同时实现安全策略和 L7 可视化
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+        - matchLabels:
+            io.kubernetes.pod.namespace: spu-cache
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              # 允许并监控 API 路径
+              - method: "GET"
+                path: "/api/spu/.*"
+              - method: "POST"
+                path: "/api/spu/.*"
+              - method: "GET"
+                path: "/actuator/.*"
+  # 出站 L7 策略
+  egress:
+    # MySQL 出站
+    - toEndpoints:
+        - matchLabels:
+            app: mysql
+      toPorts:
+        - ports:
+            - port: "3306"
+              protocol: TCP
+    # Redis 出站
+    - toEndpoints:
+        - matchLabels:
+            app: redis-cluster
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # DNS 出站
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*.spu-cache.svc.cluster.local"
+              - matchPattern: "*.kube-system.svc.cluster.local"
+---
+# ============================================================
+# Hubble 流量可视化配置（通过 ConfigMap 定制 Hubble）
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-spu-cache-config
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    observability: ebpf
+data:
+  # Hubble 流量过滤器 — 聚焦 spu-cache 相关流量
+  hubble-flow-filter.yaml: |
+    filters:
+      # 监控 spu-cache-service 的 HTTP 请求
+      - source_pod:
+          - "spu-cache-service-*"
+        protocol:
+          - HTTP
+        http_status_code:
+          - "5+"       # 仅记录 5xx 错误
+          - "4+"       # 以及 4xx 错误
+      # 监控 DNS 查询延迟
+      - type:
+          - l7
+        protocol:
+          - DNS
+        destination_pod:
+          - "kube-dns-*"
+          - "coredns-*"
+      # 监控数据库连接
+      - destination_pod:
+          - "mysql-*"
+        protocol:
+          - TCP
+        tcp_flags:
+          - SYN
+          - RST
+          - FIN

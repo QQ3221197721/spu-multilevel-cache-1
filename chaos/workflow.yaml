@@ -1,0 +1,131 @@
+# ============================================================
+# Chaos Mesh — 混沌工作流（编排多阶段实验）
+# ============================================================
+# 按顺序执行多个混沌实验，模拟真实故障场景：
+#   阶段1: 网络延迟 → 观察缓存降级是否生效
+#   阶段2: Pod Kill → 验证自愈和 HPA 扩容
+#   阶段3: 复合压力 → 全链路压力测试
+# ============================================================
+
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Workflow
+metadata:
+  name: spu-cache-chaos-workflow
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: workflow
+spec:
+  entry: full-chaos-test
+  templates:
+    # ---- 入口：串行执行所有阶段 ----
+    - name: full-chaos-test
+      templateType: Serial
+      deadline: "30m"
+      children:
+        - phase-1-network
+        - steady-state-check-1
+        - phase-2-pod-kill
+        - steady-state-check-2
+        - phase-3-combined
+        - steady-state-check-3
+
+    # ---- 阶段1：网络延迟（Redis 50ms 延迟） ----
+    - name: phase-1-network
+      templateType: NetworkChaos
+      deadline: "3m"
+      networkChaos:
+        action: delay
+        mode: all
+        selector:
+          namespaces:
+            - spu-cache
+          labelSelectors:
+            app: spu-cache-service
+        delay:
+          latency: "50ms"
+          jitter: "10ms"
+        direction: to
+        target:
+          selector:
+            namespaces:
+              - spu-cache
+            labelSelectors:
+              app: redis-cluster
+          mode: all
+        duration: "120s"
+
+    # ---- 阶段2：Pod Kill（随机杀死 1 个 Pod） ----
+    - name: phase-2-pod-kill
+      templateType: PodChaos
+      deadline: "2m"
+      podChaos:
+        action: pod-kill
+        mode: one
+        selector:
+          namespaces:
+            - spu-cache
+          labelSelectors:
+            app: spu-cache-service
+        gracePeriod: 0
+
+    # ---- 阶段3：复合压力（CPU 60% + 网络丢包 10%） ----
+    - name: phase-3-combined
+      templateType: Parallel
+      deadline: "5m"
+      children:
+        - phase-3-cpu-stress
+        - phase-3-packet-loss
+
+    - name: phase-3-cpu-stress
+      templateType: StressChaos
+      deadline: "3m"
+      stressChaos:
+        mode: fixed-percent
+        value: "50"
+        selector:
+          namespaces:
+            - spu-cache
+          labelSelectors:
+            app: spu-cache-service
+        stressors:
+          cpu:
+            workers: 2
+            load: 60
+        duration: "120s"
+
+    - name: phase-3-packet-loss
+      templateType: NetworkChaos
+      deadline: "3m"
+      networkChaos:
+        action: loss
+        mode: all
+        selector:
+          namespaces:
+            - spu-cache
+          labelSelectors:
+            app: spu-cache-service
+        loss:
+          loss: "10"
+          correlation: "25"
+        direction: both
+        duration: "120s"
+
+    # ---- 稳态检查（验证系统恢复） ----
+    - name: steady-state-check-1
+      templateType: Suspend
+      deadline: "1m"
+      suspend:
+        duration: "30s"
+
+    - name: steady-state-check-2
+      templateType: Suspend
+      deadline: "2m"
+      suspend:
+        duration: "60s"
+
+    - name: steady-state-check-3
+      templateType: Suspend
+      deadline: "1m"
+      suspend:
+        duration: "30s"

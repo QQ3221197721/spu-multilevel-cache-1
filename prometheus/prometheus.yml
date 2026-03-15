@@ -28,8 +28,54 @@ scrape_configs:
       - targets:
           - redis-exporter:9121
 
+  # eBPF Exporter — 内核级指标 (TCP延迟/系统调用/丢包/调度延迟)
+  - job_name: 'ebpf-exporter'
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - ebpf-exporter:9435
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ebpf-kernel'
+
+  # Hubble 流量可观测性 (Cilium L7)
+  - job_name: 'hubble'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - hubble-metrics.kube-system:9965
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'hubble_(flows_processed|dns_queries|http_requests|tcp_flags)_total'
+        action: keep
+
+  # Istio Envoy Sidecar 指标
+  - job_name: 'istio-envoy'
+    scrape_interval: 15s
+    metrics_path: /stats/prometheus
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_sidecar_istio_io_inject]
+        action: keep
+        regex: 'true'
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:15090
+        target_label: __address__
+
   # Prometheus 自身
   - job_name: 'prometheus'
     static_configs:
       - targets:
           - localhost:9090
+
+  # Chaos Mesh Dashboard 指标
+  - job_name: 'chaos-mesh'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - chaos-dashboard.chaos-testing:2333
+    metrics_path: /api/metrics

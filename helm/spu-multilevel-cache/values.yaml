@@ -1,0 +1,323 @@
+# ============================================================
+# SPU 多级缓存服务 — Helm Chart 默认配置
+# ============================================================
+# 使用: helm install spu-cache ./helm/spu-multilevel-cache
+#       helm install spu-cache ./helm/spu-multilevel-cache -f helm/spu-multilevel-cache/values-prod.yaml
+# ============================================================
+
+# ---- 全局 ----
+global:
+  namespace: spu-cache
+  environment: dev
+
+# ---- 镜像 ----
+image:
+  repository: spu-cache-service
+  tag: latest
+  pullPolicy: Always
+  pullSecrets: []
+
+# ---- 副本与更新策略 ----
+replicaCount: 3
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# ---- ServiceAccount ----
+serviceAccount:
+  create: true
+  name: spu-cache-service
+  annotations: {}
+  automountServiceAccountToken: true
+
+# ---- RBAC ----
+rbac:
+  create: true
+  clusterRole:
+    nodeReader: true
+
+# ---- Pod 配置 ----
+terminationGracePeriodSeconds: 60
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/actuator/prometheus"
+
+podLabels:
+  version: stable
+
+# ---- Istio Service Mesh ----
+istio:
+  enabled: true
+  # Sidecar 注入
+  sidecar:
+    inject: true
+    proxyCPU: "100m"
+    proxyMemory: "128Mi"
+    proxyCPULimit: "500m"
+    proxyMemoryLimit: "512Mi"
+    holdApplicationUntilProxyStarts: true
+    terminationDrainDuration: 30s
+  # mTLS 模式: STRICT / PERMISSIVE / DISABLE
+  mtls: STRICT
+  # 流量路由
+  trafficRouting:
+    canaryWeight: 10
+    stableWeight: 90
+  # 网关
+  gateway:
+    enabled: true
+    hosts:
+      - spu-cache.example.com
+
+# ---- eBPF 可观测性 ----
+ebpf:
+  enabled: true
+  hubbleVisibility: "<Flow>/<Port>/<Protocol>"
+  monitor: true
+
+# ---- Chaos Mesh ----
+chaosMesh:
+  enabled: false
+  # 调度实验
+  schedule:
+    podKill:
+      enabled: false
+      cron: "0 10 * * 1-5"
+    networkDelay:
+      enabled: false
+      cron: "0 14 * * 3"
+
+podSecurityContext: {}
+
+securityContext: {}
+
+# ---- 容器端口 ----
+containerPort: 8080
+
+# ---- 环境变量 ----
+env:
+  SPRING_PROFILES_ACTIVE: "prod"
+  JAVA_OPTS: "-Xms2g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 --enable-preview"
+  JAVA_TOOL_OPTIONS: "--enable-preview"
+  LOGSTASH_PORT: "5000"
+  SEATA_ENABLED: "true"
+  SHARDING_ENABLED: "false"
+  ZIPKIN_ENABLED: "true"
+
+# ---- 资源限制 ----
+resources:
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+# ---- 探针 ----
+probes:
+  liveness:
+    path: /actuator/probes/liveness
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /actuator/probes/readiness
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    path: /actuator/probes/startup
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30
+
+# ---- Service ----
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+# ---- Ingress ----
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "1000"
+    nginx.ingress.kubernetes.io/limit-connections: "500"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+  hosts:
+    - host: spu-cache.example.com
+      paths:
+        - path: /api/spu
+          pathType: Prefix
+        - path: /actuator
+          pathType: Prefix
+  tls:
+    - hosts:
+        - spu-cache.example.com
+      secretName: spu-cache-tls
+
+# ---- ConfigMap ----
+configMap:
+  redis.cluster.nodes: "redis-cluster-0:6379,redis-cluster-1:6379,redis-cluster-2:6379"
+  memcached.servers: "memcached-0:11211,memcached-1:11211,memcached-2:11211"
+  kafka.bootstrap.servers: "kafka:9092"
+  zipkin.endpoint: "http://zipkin:9411/api/v2/spans"
+  apollo.meta: "http://apollo-configservice:8080"
+  es.uris: "http://elasticsearch:9200"
+  logstash.host: "logstash-0"
+  mysql.slave.host: "mysql-slave-0"
+  canal.server.host: "canal-server"
+  app.cache.l1.max-size: "10000"
+  app.cache.l1.ttl-seconds: "30"
+  app.cache.l2.ttl-seconds: "300"
+  app.cache.l3.ttl-seconds: "3600"
+  app.cache.warmup.enabled: "true"
+  app.rate-limit.global-qps: "50000"
+  app.rate-limit.ip-qps: "100"
+
+# ---- Secret ----
+secret:
+  mysql.url: "jdbc:mysql://mysql:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai"
+  mysql.username: "spu_cache"
+  mysql.password: "CHANGE_ME"
+  mysql.slave.url: "jdbc:mysql://mysql-slave:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=Asia/Shanghai"
+  mysql.slave.username: "spu_cache_ro"
+  mysql.slave.password: "CHANGE_ME"
+  jwt.secret: "CHANGE_ME_256BIT_JWT_SECRET"
+  encryption.key: "CHANGE_ME_AES256_BASE64_KEY"
+  apollo.portal.password: "CHANGE_ME"
+  canal.username: "canal"
+  canal.password: "CHANGE_ME"
+
+# ---- HPA 自动扩缩容 ----
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+
+# ---- PodDisruptionBudget ----
+pdb:
+  enabled: true
+  minAvailable: 2
+
+# ---- NetworkPolicy ----
+networkPolicy:
+  enabled: true
+  # 入站白名单
+  ingress:
+    allowIngressNginx: true
+    allowPrometheus: true
+    allowSameNamespace: true
+    allowIstioControlPlane: true
+  # 出站白名单
+  egress:
+    allowDNS: true
+    allowMySQL: true
+    allowRedis: true
+    allowMemcached: true
+    allowKafka: true
+    allowCanal: true
+    allowZipkin: true
+    allowLogstash: true
+    allowApollo: true
+    allowElasticsearch: true
+    allowSeata: true
+    allowIstioControlPlane: true
+    allowEbpfExporter: true
+
+# ---- Pod 亲和性 ----
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - spu-cache-service
+          topologyKey: kubernetes.io/hostname
+
+nodeSelector: {}
+tolerations: []
+
+# ---- 生命周期 ----
+lifecycle:
+  preStop:
+    exec:
+      command: ["/bin/sh", "-c", "sleep 10"]
+
+# ---- 金丝雀部署 ----
+canary:
+  enabled: false
+  replicas: 1
+  weight: 10
+  image:
+    tag: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# ---- GraalVM Native Image ----
+nativeImage:
+  enabled: false
+  # 使用 Dockerfile.native 构建时启用
+  image:
+    repository: spu-cache-service-native
+    tag: latest
+  resources:
+    requests:
+      cpu: 200m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 256Mi

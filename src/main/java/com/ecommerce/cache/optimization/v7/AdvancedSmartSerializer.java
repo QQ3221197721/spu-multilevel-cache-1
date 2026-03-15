@@ -169,6 +169,19 @@ public class AdvancedSmartSerializer {
             }
         });
         
+        // Boolean序列化器
+        registerSerializer(Boolean.class, new TypeSerializer<Boolean>() {
+            @Override
+            public void serialize(Boolean obj, DataOutputStream out) throws IOException {
+                out.writeBoolean(obj);
+            }
+            
+            @Override
+            public Boolean deserialize(DataInputStream in) throws IOException {
+                return in.readBoolean();
+            }
+        });
+        
         // byte[]序列化器
         registerSerializer(byte[].class, new TypeSerializer<byte[]>() {
             @Override

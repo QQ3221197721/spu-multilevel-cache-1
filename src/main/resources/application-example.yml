@@ -1,0 +1,70 @@
+# ========================================
+# SPU 多级缓存服务 - 配置模板
+# 复制本文件为 application-local.yml 后修改
+# application-local.yml 已被 .gitignore 忽略，不会提交到 Git
+# ========================================
+
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  # ========== 数据源配置 ==========
+  datasource:
+    url: jdbc:mysql://localhost:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: <YOUR_MYSQL_PASSWORD>
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # ========== JPA 配置 ==========
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: validate
+
+  # ========== Redis 配置 ==========
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: <YOUR_REDIS_PASSWORD>
+
+  # ========== Nacos 配置 ==========
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+        server-addr: localhost:8848
+        namespace: <YOUR_NACOS_NAMESPACE>
+      config:
+        enabled: true
+        server-addr: localhost:8848
+        namespace: <YOUR_NACOS_NAMESPACE>
+
+# ========== Memcached 配置 ==========
+memcached:
+  primary:
+    servers: localhost:11211
+  backup:
+    servers: localhost:11212
+
+# ========== RocketMQ 配置 ==========
+rocketmq:
+  name-server: localhost:9876
+  producer:
+    group: spu_cache_producer_local
+
+# ========== JWT 安全配置 ==========
+security:
+  jwt:
+    secret: <YOUR_JWT_SECRET_KEY_MIN_256_BITS>
+    expiration-ms: 86400000
+    issuer: spu-detail-service
+
+# ========== 日志级别 ==========
+logging:
+  level:
+    com.ecommerce.cache: DEBUG
+    org.springframework.data.redis: DEBUG
+    org.hibernate.SQL: DEBUG
+    com.alibaba.nacos: INFO

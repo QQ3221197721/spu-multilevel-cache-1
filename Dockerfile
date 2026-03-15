@@ -29,6 +29,9 @@ COPY --from=builder /app/target/*.jar app.jar
 # 复制 Lua 脚本
 COPY src/main/resources/lua /app/lua
 
+# 创建日志目录
+RUN mkdir -p /app/logs && chown -R appuser:appgroup /app/logs
+
 # 设置时区
 ENV TZ=Asia/Shanghai
 RUN apk add --no-cache tzdata && \
@@ -44,6 +47,13 @@ ENV JAVA_OPTS="-Xms2g -Xmx2g \
     -XX:HeapDumpPath=/app/logs/heapdump.hprof \
     -Djava.security.egd=file:/dev/./urandom"
 
+# Zipkin 链路追踪环境变量（通过 Spring Boot 自动配置，无需 Agent）
+ENV ZIPKIN_ENDPOINT=http://localhost:9411/api/v2/spans
+ENV ZIPKIN_ENABLED=true
+
+# Apollo 配置中心环境变量
+ENV APOLLO_META=http://localhost:8080
+
 # 暴露端口
 EXPOSE 8080
 
@@ -55,4 +65,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 USER appuser
 
 # 启动命令
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50", "-jar", "app.jar"]

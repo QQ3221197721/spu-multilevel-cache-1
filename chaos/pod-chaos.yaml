@@ -1,0 +1,79 @@
+# ============================================================
+# Chaos Mesh — Pod 混沌实验
+# ============================================================
+# 测试 spu-cache-service 在 Pod 故障场景下的恢复能力：
+#   1. Pod Kill — 随机杀死 Pod
+#   2. Pod Failure — Pod 运行时注入故障
+#   3. Container Kill — 容器级别 kill
+# ============================================================
+
+# ---- 实验1：随机 Pod Kill（模拟节点意外重启） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: spu-cache-pod-kill
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: pod
+    experiment: pod-kill
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  # 排除金丝雀 Pod（仅对稳定版执行）
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+      version: stable
+  gracePeriod: 0
+  duration: "30s"
+---
+# ---- 实验2：Pod Failure（注入运行时故障） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: spu-cache-pod-failure
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: pod
+    experiment: pod-failure
+spec:
+  action: pod-failure
+  mode: fixed-percent
+  value: "30"
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  duration: "60s"
+---
+# ---- 实验3：Container Kill（容器级别 kill） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: spu-cache-container-kill
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: pod
+    experiment: container-kill
+spec:
+  action: container-kill
+  mode: one
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  containerNames:
+    - spu-multilevel-cache
+  duration: "30s"

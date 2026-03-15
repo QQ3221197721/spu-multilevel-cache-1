@@ -1,0 +1,38 @@
+# ============================================================
+# SPU 多级缓存服务 — PodDisruptionBudget
+# ============================================================
+# 确保滚动更新 / 节点维护期间至少保持 70% 可用副本
+# 配合 HPA (minReplicas=3) → 至少 2 个 Pod 始终在线
+# ============================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spu-cache-service-pdb
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    component: availability
+spec:
+  # 最少可用 Pod 数 — 确保节点 drain 时不会全部下线
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: spu-cache-service
+---
+# 金丝雀部署的 PDB — 单副本至少保持 1 个可用（仅在金丝雀存在时生效）
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spu-cache-service-canary-pdb
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    component: availability
+    track: canary
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: spu-cache-service
+      version: canary

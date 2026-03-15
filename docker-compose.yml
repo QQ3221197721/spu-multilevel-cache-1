@@ -1,6 +1,54 @@
 version: '3.8'
 
 services:
+  # ==================== MySQL ====================
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=spu_cache_db
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --server-id=1 --log-bin=mysql-bin --binlog-format=ROW
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cache-network
+
+  # MySQL 从库（读写分离）
+  mysql-slave:
+    image: mysql:8.0
+    container_name: mysql-slave
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=spu_cache_db
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - mysql-slave-data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --server-id=2 --log-bin=mysql-bin --binlog-format=ROW --read-only=1 --relay-log=relay-bin
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cache-network
+
   # ==================== 应用服务 ====================
   spu-cache-service:
     build:
@@ -16,14 +64,35 @@ services:
       - REDIS_NODE_3=redis-node-3:6379
       - MC_PRIMARY_SERVERS=memcached-1:11211,memcached-2:11211
       - MC_BACKUP_SERVERS=memcached-3:11211
-      - ROCKETMQ_NAMESRV=rocketmq-namesrv:9876
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      # Zipkin 链路追踪
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - ZIPKIN_ENABLED=true
+      # Apollo 配置中心
+      - APOLLO_META=http://apollo-configservice:8080
+      # ELK Logstash
+      - LOGSTASH_HOST=logstash
+      - LOGSTASH_PORT=5000
+      # Seata
+      - SEATA_ENABLED=true
+      # ShardingSphere
+      - SHARDING_ENABLED=${SHARDING_ENABLED:-false}
+      - MYSQL_SLAVE_URL=jdbc:mysql://mysql-slave:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
     depends_on:
-      - redis-node-1
-      - redis-node-2
-      - redis-node-3
-      - memcached-1
-      - memcached-2
-      - rocketmq-namesrv
+      mysql:
+        condition: service_healthy
+      redis-node-1:
+        condition: service_started
+      redis-node-2:
+        condition: service_started
+      redis-node-3:
+        condition: service_started
+      memcached-1:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      memcached-2:
+        condition: service_started
     networks:
       - cache-network
     healthcheck:
@@ -112,31 +181,91 @@ services:
     networks:
       - cache-network
 
-  # ==================== RocketMQ ====================
-  rocketmq-namesrv:
-    image: apache/rocketmq:5.1.0
-    container_name: rocketmq-namesrv
+  # ==================== Kafka + Zookeeper ====================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: zookeeper
     ports:
-      - "9876:9876"
-    command: sh mqnamesrv
+      - "2181:2181"
     environment:
-      - JAVA_OPT_EXT=-Xms256m -Xmx256m
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
     networks:
       - cache-network
 
-  rocketmq-broker:
-    image: apache/rocketmq:5.1.0
-    container_name: rocketmq-broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: kafka
     ports:
-      - "10911:10911"
-      - "10909:10909"
-    depends_on:
-      - rocketmq-namesrv
-    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/conf/broker.conf
+      - "9092:9092"
+      - "29092:29092"
     environment:
-      - JAVA_OPT_EXT=-Xms512m -Xmx512m
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 8
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
     volumes:
-      - rocketmq-data:/home/rocketmq/store
+      - kafka-data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - cache-network
+
+  # ==================== Canal Server (binlog 监听) ====================
+  canal-server:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-server
+    ports:
+      - "11111:11111"   # Canal TCP
+      - "11112:11112"   # Prometheus Metrics
+    environment:
+      - canal.auto.scan=false
+      - canal.destinations=spu_cache
+      - canal.serverMode=kafka
+      - canal.instance.master.address=mysql:3306
+      - canal.instance.dbUsername=canal
+      - canal.instance.dbPassword=canal
+      - canal.instance.connectionCharset=UTF-8
+      - canal.instance.filter.regex=spu_cache_db\\.t_spu,spu_cache_db\\.t_sku,spu_cache_db\\.t_spu_detail,spu_cache_db\\.t_spu_attribute
+      - canal.instance.filter.black.regex=spu_cache_db\\.t_message_outbox,spu_cache_db\\.t_dead_letter_message,spu_cache_db\\.flyway_schema_history,spu_cache_db\\.undo_log
+      - canal.instance.gtidon=true
+      - canal.mq.flatMessage=true
+      - canal.mq.topic=CANAL_BINLOG_TOPIC
+      - canal.mq.dynamicTopic=spu_cache_db\\.t_spu:CANAL_SPU_BINLOG,spu_cache_db\\.t_sku:CANAL_SKU_BINLOG
+      - canal.mq.partitionsNum=8
+      - canal.mq.partitionHash=spu_cache_db\\.t_spu:spu_id,spu_cache_db\\.t_sku:sku_id
+      - kafka.bootstrap.servers=kafka:9092
+    volumes:
+      - ./canal/instance.properties:/home/admin/canal-server/conf/spu_cache/instance.properties:ro
+      - canal-data:/home/admin/canal-server/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 11111"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - cache-network
 
@@ -183,14 +312,189 @@ services:
     networks:
       - cache-network
 
+  # ==================== Zipkin 链路追踪 ====================
+  zipkin:
+    image: openzipkin/zipkin:3.0
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    environment:
+      - STORAGE_TYPE=elasticsearch
+      - ES_HOSTS=http://elasticsearch:9200
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - TZ=Asia/Shanghai
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9411/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - cache-network
+
+  # ==================== Apollo 配置中心 ====================
+  apollo-db:
+    image: mysql:8.0
+    container_name: apollo-db
+    ports:
+      - "3308:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=apollo123
+    volumes:
+      - apollo-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cache-network
+
+  apollo-configservice:
+    image: apolloconfig/apollo-configservice:2.2.0
+    container_name: apollo-configservice
+    ports:
+      - "8070:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://apollo-db:3306/ApolloConfigDB?characterEncoding=utf8&useSSL=false
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=apollo123
+      - EUREKA_INSTANCE_HOME_PAGE_URL=http://apollo-configservice:8080
+    depends_on:
+      apollo-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - cache-network
+
+  apollo-adminservice:
+    image: apolloconfig/apollo-adminservice:2.2.0
+    container_name: apollo-adminservice
+    ports:
+      - "8071:8090"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://apollo-db:3306/ApolloConfigDB?characterEncoding=utf8&useSSL=false
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=apollo123
+    depends_on:
+      apollo-configservice:
+        condition: service_healthy
+    networks:
+      - cache-network
+
+  apollo-portal:
+    image: apolloconfig/apollo-portal:2.2.0
+    container_name: apollo-portal
+    ports:
+      - "8072:8070"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://apollo-db:3306/ApolloPortalDB?characterEncoding=utf8&useSSL=false
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=apollo123
+      - APOLLO_PORTAL_ENVS=dev
+      - DEV_META=http://apollo-configservice:8080
+    depends_on:
+      apollo-adminservice:
+        condition: service_started
+    networks:
+      - cache-network
+
+  # ==================== Seata 分布式事务 ====================
+  seata-server:
+    image: seataio/seata-server:2.0.0
+    container_name: seata-server
+    ports:
+      - "8091:8091"
+      - "7091:7091"
+    environment:
+      - SEATA_IP=seata-server
+      - SEATA_PORT=8091
+      - STORE_MODE=db
+      - SERVER_NODE=1
+      - SEATA_ENV=dev
+    networks:
+      - cache-network
+
+  # ==================== ELK Stack ====================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - TZ=Asia/Shanghai
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - cache-network
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    ports:
+      - "5000:5000/tcp"    # Logback TCP
+      - "5044:5044"        # Beats
+      - "9600:9600"        # Monitoring API
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - cache-network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - TZ=Asia/Shanghai
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - cache-network
+
 networks:
   cache-network:
     driver: bridge
 
 volumes:
+  mysql-data:
+  mysql-slave-data:
   redis-data-1:
   redis-data-2:
   redis-data-3:
-  rocketmq-data:
+  zookeeper-data:
+  zookeeper-log:
+  kafka-data:
   prometheus-data:
   grafana-data:
+  elasticsearch-data:
+  canal-data:
+  apollo-db-data:

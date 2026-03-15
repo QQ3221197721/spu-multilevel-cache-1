@@ -1,0 +1,72 @@
+[
+  {
+    "_comment": "Spring Boot 核心反射配置",
+    "name": "com.ecommerce.cache.SpuCacheApplication",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "JPA 实体类需要反射支持",
+    "name": "com.ecommerce.cache.entity.SpuEntity",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "Caffeine 缓存需要反射",
+    "name": "com.github.benmanes.caffeine.cache.SSMSA",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "_comment": "Redisson 序列化需要反射",
+    "name": "org.redisson.config.ClusterServersConfig",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "Sentinel 规则反射",
+    "name": "com.alibaba.csp.sentinel.slots.block.flow.FlowRule",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "Sentinel 降级规则反射",
+    "name": "com.alibaba.csp.sentinel.slots.block.degrade.DegradeRule",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "FastJSON2 序列化需要反射",
+    "name": "com.alibaba.fastjson2.JSONObject",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "_comment": "MySQL JDBC 驱动",
+    "name": "com.mysql.cj.jdbc.Driver",
+    "allDeclaredConstructors": true
+  },
+  {
+    "_comment": "HikariCP 连接池",
+    "name": "com.zaxxer.hikari.HikariDataSource",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "Logback 编码器",
+    "name": "ch.qos.logback.classic.encoder.PatternLayoutEncoder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "_comment": "Logstash Encoder",
+    "name": "net.logstash.logback.encoder.LogstashEncoder",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  }
+]

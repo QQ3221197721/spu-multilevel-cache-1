@@ -1,0 +1,83 @@
+# ============================================================
+# 预发布环境配置覆盖 (Staging)
+# 用法: helm install spu-cache . -f values-staging.yaml
+# ============================================================
+
+global:
+  environment: staging
+
+replicaCount: 2
+
+env:
+  SPRING_PROFILES_ACTIVE: "staging"
+  JAVA_OPTS: "-Xms1g -Xmx1g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 --enable-preview"
+  SEATA_ENABLED: "true"
+  SHARDING_ENABLED: "false"
+  ZIPKIN_ENABLED: "true"
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+ingress:
+  enabled: true
+  hosts:
+    - host: spu-cache-staging.example.com
+      paths:
+        - path: /api/spu
+          pathType: Prefix
+        - path: /actuator
+          pathType: Prefix
+  tls:
+    - hosts:
+        - spu-cache-staging.example.com
+      secretName: spu-cache-staging-tls
+
+configMap:
+  redis.cluster.nodes: "redis-staging-0:6379,redis-staging-1:6379,redis-staging-2:6379"
+  memcached.servers: "memcached-staging-0:11211,memcached-staging-1:11211"
+  kafka.bootstrap.servers: "kafka-staging:9092"
+  apollo.meta: "http://apollo-configservice-staging:8080"
+  es.uris: "http://es-staging:9200"
+
+canary:
+  enabled: false
+
+# Staging 环境 Istio (启用 permissive 模式)
+istio:
+  enabled: true
+  mtls: PERMISSIVE
+  trafficRouting:
+    canaryWeight: 20
+    stableWeight: 80
+
+# Staging 环境 eBPF
+ebpf:
+  enabled: true
+
+# Staging 环境启用混沌实验
+chaosMesh:
+  enabled: true
+  schedule:
+    podKill:
+      enabled: true
+      cron: "0 10 * * 1-5"
+    networkDelay:
+      enabled: true
+      cron: "0 14 * * 3"

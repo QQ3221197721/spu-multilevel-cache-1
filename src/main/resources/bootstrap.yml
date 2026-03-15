@@ -1,0 +1,26 @@
+# ========================================
+# SPU 多级缓存服务 - Apollo 引导配置
+# Spring Cloud Bootstrap 加载优先于 application.yml
+# ========================================
+
+spring:
+  application:
+    name: spu-detail-service
+
+# Apollo 配置中心
+app:
+  id: spu-detail-service
+
+apollo:
+  meta: ${APOLLO_META:http://localhost:8080}
+  bootstrap:
+    enabled: true
+    namespaces: application,common-redis,common-datasource
+    eagerLoad:
+      enabled: true
+  # 缓存目录（本地降级）
+  cache-dir: /app/config-cache
+  # 集群
+  cluster: ${APOLLO_CLUSTER:default}
+  # 自动更新
+  autoUpdateInjectedSpringProperties: true

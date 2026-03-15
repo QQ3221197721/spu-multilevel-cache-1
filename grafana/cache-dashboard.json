@@ -247,6 +247,482 @@
             "legendFormat": "DB 查询"
           }
         ]
+      },
+      {
+        "id": 100,
+        "title": "━━━ JVM 深度监控 ━━━",
+        "type": "row",
+        "gridPos": {"x": 0, "y": 28, "w": 24, "h": 1},
+        "collapsed": false
+      },
+      {
+        "id": 12,
+        "title": "JVM 堆内存使用",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 29, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+            "legendFormat": "{{id}} 已用"
+          },
+          {
+            "expr": "jvm_memory_committed_bytes{area=\"heap\"}",
+            "legendFormat": "{{id}} 已提交"
+          },
+          {
+            "expr": "jvm_memory_max_bytes{area=\"heap\"}",
+            "legendFormat": "{{id}} 最大"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "custom": {"lineWidth": 2, "fillOpacity": 10}
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "GC 暂停时间",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 29, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(jvm_gc_pause_seconds_sum[1m]) / rate(jvm_gc_pause_seconds_count[1m])",
+            "legendFormat": "{{action}} {{cause}} 平均暂停"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(jvm_gc_pause_seconds_bucket[5m]))",
+            "legendFormat": "GC TP99"
+          },
+          {
+            "expr": "jvm_gc_pause_seconds_max",
+            "legendFormat": "{{action}} 最大暂停"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {"lineWidth": 2}
+          }
+        }
+      },
+      {
+        "id": 14,
+        "title": "JVM 线程数",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 37, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "jvm_threads_live_threads",
+            "legendFormat": "活跃线程"
+          },
+          {
+            "expr": "jvm_threads_daemon_threads",
+            "legendFormat": "守护线程"
+          },
+          {
+            "expr": "jvm_threads_peak_threads",
+            "legendFormat": "峰值线程"
+          },
+          {
+            "expr": "jvm_threads_states_threads",
+            "legendFormat": "{{state}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"lineWidth": 2, "fillOpacity": 10}
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "GC 回收频率 & 堆使用率",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 37, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(jvm_gc_pause_seconds_count[1m])",
+            "legendFormat": "{{action}} 频率/秒"
+          },
+          {
+            "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) / sum(jvm_memory_max_bytes{area=\"heap\"}) * 100",
+            "legendFormat": "堆使用率 %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"lineWidth": 2}
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "堆使用率 %"},
+              "properties": [{"id": "unit", "value": "percent"}]
+            }
+          ]
+        }
+      },
+      {
+        "id": 101,
+        "title": "━━━ 业务指标监控 ━━━",
+        "type": "row",
+        "gridPos": {"x": 0, "y": 45, "w": 24, "h": 1},
+        "collapsed": false
+      },
+      {
+        "id": 16,
+        "title": "业务 QPS",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 46, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(business_http_requests_total[1m]))",
+            "legendFormat": "总 QPS"
+          },
+          {
+            "expr": "sum(rate(business_http_success_total[1m]))",
+            "legendFormat": "成功 QPS"
+          },
+          {
+            "expr": "sum(rate(business_http_server_errors_total[1m]))",
+            "legendFormat": "5xx QPS"
+          },
+          {
+            "expr": "sum(rate(business_http_client_errors_total[1m]))",
+            "legendFormat": "4xx QPS"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {"lineWidth": 2, "fillOpacity": 10}
+          }
+        }
+      },
+      {
+        "id": 17,
+        "title": "业务响应延迟 (TP50/90/99/999)",
+        "type": "timeseries",
+        "gridPos": {"x": 8, "y": 46, "w": 10, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(business_http_request_duration_seconds_bucket[1m])) * 1000",
+            "legendFormat": "TP50"
+          },
+          {
+            "expr": "histogram_quantile(0.90, rate(business_http_request_duration_seconds_bucket[1m])) * 1000",
+            "legendFormat": "TP90"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(business_http_request_duration_seconds_bucket[1m])) * 1000",
+            "legendFormat": "TP99"
+          },
+          {
+            "expr": "histogram_quantile(0.999, rate(business_http_request_duration_seconds_bucket[1m])) * 1000",
+            "legendFormat": "TP999"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "custom": {"lineWidth": 2}
+          }
+        }
+      },
+      {
+        "id": 18,
+        "title": "业务成功率",
+        "type": "gauge",
+        "gridPos": {"x": 18, "y": 46, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(business_http_success_total[5m])) / sum(rate(business_http_requests_total[5m])) * 100",
+            "legendFormat": "成功率"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 95},
+                {"color": "yellow", "value": 99},
+                {"color": "green", "value": 99.5}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 19,
+        "title": "URI 维度延迟 Top 10",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 54, "w": 24, "h": 6},
+        "targets": [
+          {
+            "expr": "topk(10, histogram_quantile(0.99, rate(business_http_uri_duration_seconds_bucket[5m])) * 1000)",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "Value": "TP99 (ms)",
+                "uri": "URI"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 102,
+        "title": "━━━ 慢查询监控 ━━━",
+        "type": "row",
+        "gridPos": {"x": 0, "y": 60, "w": 24, "h": 1},
+        "collapsed": false
+      },
+      {
+        "id": 20,
+        "title": "慢查询速率",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 61, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(db_slow_query_total[1m])",
+            "legendFormat": "慢查询/秒"
+          },
+          {
+            "expr": "rate(db_query_total[1m])",
+            "legendFormat": "总查询/秒"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "custom": {"lineWidth": 2, "fillOpacity": 10}
+          }
+        }
+      },
+      {
+        "id": 21,
+        "title": "DB 查询延迟分位数",
+        "type": "timeseries",
+        "gridPos": {"x": 8, "y": 61, "w": 10, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(db_query_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "TP50"
+          },
+          {
+            "expr": "histogram_quantile(0.90, rate(db_query_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "TP90"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(db_query_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "TP99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "custom": {"lineWidth": 2}
+          }
+        }
+      },
+      {
+        "id": 22,
+        "title": "慢查询累计",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 61, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "db_slow_query_total",
+            "legendFormat": "累计慢查询"
+          },
+          {
+            "expr": "rate(db_slow_query_total[5m]) / rate(db_query_total[5m]) * 100",
+            "legendFormat": "慢查询占比 %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 100},
+                {"color": "red", "value": 500}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 103,
+        "title": "━━━ 连接池监控 ━━━",
+        "type": "row",
+        "gridPos": {"x": 0, "y": 69, "w": 24, "h": 1},
+        "collapsed": false
+      },
+      {
+        "id": 23,
+        "title": "HikariCP 连接池状态",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 70, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "hikaricp_connections_active",
+            "legendFormat": "活跃连接"
+          },
+          {
+            "expr": "hikaricp_connections_idle",
+            "legendFormat": "空闲连接"
+          },
+          {
+            "expr": "hikaricp_connections",
+            "legendFormat": "总连接"
+          },
+          {
+            "expr": "hikaricp_connections_pending",
+            "legendFormat": "等待线程"
+          },
+          {
+            "expr": "hikaricp_connections_max",
+            "legendFormat": "最大连接"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"lineWidth": 2, "fillOpacity": 10}
+          }
+        }
+      },
+      {
+        "id": 24,
+        "title": "HikariCP 连接获取耗时 & 使用率",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 70, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "hikaricp_connections_active / hikaricp_connections_max * 100",
+            "legendFormat": "连接池使用率 %"
+          },
+          {
+            "expr": "rate(hikaricp_connections_acquire_seconds_sum[1m]) / rate(hikaricp_connections_acquire_seconds_count[1m]) * 1000",
+            "legendFormat": "平均获取耗时 ms"
+          },
+          {
+            "expr": "rate(hikaricp_connections_creation_seconds_sum[1m]) / rate(hikaricp_connections_creation_seconds_count[1m]) * 1000",
+            "legendFormat": "平均创建耗时 ms"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"lineWidth": 2}
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "连接池使用率 %"},
+              "properties": [{"id": "unit", "value": "percent"}]
+            },
+            {
+              "matcher": {"id": "byRegexp", "options": ".*耗时.*"},
+              "properties": [{"id": "unit", "value": "ms"}]
+            }
+          ]
+        }
+      },
+      {
+        "id": 25,
+        "title": "Redis 连接 & 延迟",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 78, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(redis_connected_clients)",
+            "legendFormat": "当前连接"
+          },
+          {
+            "expr": "sum(redis_blocked_clients)",
+            "legendFormat": "阻塞客户端"
+          },
+          {
+            "expr": "redis_connected_clients / redis_maxclients * 100",
+            "legendFormat": "连接使用率 %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"lineWidth": 2}
+          }
+        }
+      },
+      {
+        "id": 26,
+        "title": "降级状态",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 78, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "ops_degradation_level",
+            "legendFormat": "降级级别"
+          },
+          {
+            "expr": "increase(ops_degradation_toggles_total[1h])",
+            "legendFormat": "1h 切换次数"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "orange", "value": 2},
+                {"color": "red", "value": 3}
+              ]
+            },
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "NORMAL", "color": "green"}}},
+              {"type": "value", "options": {"1": {"text": "READ_ONLY", "color": "yellow"}}},
+              {"type": "value", "options": {"2": {"text": "CACHE_ONLY", "color": "orange"}}},
+              {"type": "value", "options": {"3": {"text": "REJECT", "color": "red"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 27,
+        "title": "JVM 非堆内存 & Metaspace",
+        "type": "timeseries",
+        "gridPos": {"x": 18, "y": 78, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{area=\"nonheap\", id=\"Metaspace\"}",
+            "legendFormat": "Metaspace 已用"
+          },
+          {
+            "expr": "jvm_memory_used_bytes{area=\"nonheap\", id=\"Compressed Class Space\"}",
+            "legendFormat": "压缩类空间"
+          },
+          {
+            "expr": "jvm_buffer_memory_used_bytes{id=\"direct\"}",
+            "legendFormat": "Direct Buffer"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "custom": {"lineWidth": 2}
+          }
+        }
       }
     ]
   }

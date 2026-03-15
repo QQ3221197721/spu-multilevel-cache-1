@@ -1,0 +1,215 @@
+# ============================================================
+# SPU 多级缓存服务 — NetworkPolicy 网络策略
+# ============================================================
+# 实施最小权限网络访问：
+#   - Ingress: 仅允许 Nginx Ingress + Prometheus + 同命名空间 Pod
+#   - Egress:  仅允许访问 MySQL / Redis / Memcached / Kafka 等依赖
+# ============================================================
+
+# ------- 1. 默认拒绝所有入站和出站流量 -------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: spu-cache
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# ------- 2. 应用 Pod 入站策略 -------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spu-cache-service-ingress
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+spec:
+  podSelector:
+    matchLabels:
+      app: spu-cache-service
+  policyTypes:
+    - Ingress
+  ingress:
+    # 允许 Nginx Ingress Controller 访问 (HTTP 端口)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 允许 Prometheus 抓取指标
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 允许同命名空间 Pod 互访 (金丝雀 ↔ 稳定版)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: spu-cache-service
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# ------- 3. 应用 Pod 出站策略 -------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spu-cache-service-egress
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+spec:
+  podSelector:
+    matchLabels:
+      app: spu-cache-service
+  policyTypes:
+    - Egress
+  egress:
+    # DNS 查询 (kube-dns / CoreDNS)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # MySQL 主库 + 从库
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+
+    # Redis Cluster (6379 + 16379 总线)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis-cluster
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 16379
+
+    # Memcached
+    - to:
+        - podSelector:
+            matchLabels:
+              app: memcached
+      ports:
+        - protocol: TCP
+          port: 11211
+
+    # Kafka Broker
+    - to:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+
+    # Canal Server
+    - to:
+        - podSelector:
+            matchLabels:
+              app: canal-server
+      ports:
+        - protocol: TCP
+          port: 11111
+
+    # Zipkin 链路追踪
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: zipkin
+      ports:
+        - protocol: TCP
+          port: 9411
+
+    # Logstash (TCP)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: logging
+          podSelector:
+            matchLabels:
+              app: logstash
+      ports:
+        - protocol: TCP
+          port: 5000
+
+    # Apollo 配置中心
+    - to:
+        - podSelector:
+            matchLabels:
+              app: apollo-configservice
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Elasticsearch
+    - to:
+        - podSelector:
+            matchLabels:
+              app: elasticsearch
+      ports:
+        - protocol: TCP
+          port: 9200
+
+    # Seata Server (TC)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: seata-server
+      ports:
+        - protocol: TCP
+          port: 8091
+
+    # Istio 控制平面 (istiod)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 15010
+        - protocol: TCP
+          port: 15012
+        - protocol: TCP
+          port: 15014
+
+    # eBPF Exporter
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: ebpf-exporter
+      ports:
+        - protocol: TCP
+          port: 9435

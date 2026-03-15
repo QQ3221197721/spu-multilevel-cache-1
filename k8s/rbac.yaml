@@ -1,0 +1,107 @@
+# ============================================================
+# SPU 多级缓存服务 — ServiceAccount + RBAC
+# ============================================================
+# 最小权限原则:
+#   - ServiceAccount: Pod 身份标识
+#   - Role: 仅允许读取本命名空间 ConfigMap/Secret/Endpoints
+#   - RoleBinding: 绑定 SA → Role
+#   - 额外 ClusterRole: 允许查询 Node 信息（用于拓扑感知调度）
+# ============================================================
+
+# ------- ServiceAccount -------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spu-cache-service
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+  annotations:
+    # 禁止自动挂载 Token（仅当 Pod spec 显式请求时挂载）
+    kubernetes.io/enforce-mountable-secrets: "true"
+automountServiceAccountToken: false
+
+---
+# ------- Namespace-scoped Role -------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spu-cache-service-role
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+rules:
+  # 读取 ConfigMap（应用配置热更新）
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["spu-cache-config"]
+
+  # 读取 Secret（密钥轮换感知）
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["spu-cache-secret", "spu-cache-tls"]
+
+  # 读取 Endpoints（服务发现）
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+
+  # 读取 Pod 信息（健康检查、拓扑感知）
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+  # 读取 Events（故障排查审计）
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ------- RoleBinding: SA → Role -------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spu-cache-service-rolebinding
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+subjects:
+  - kind: ServiceAccount
+    name: spu-cache-service
+    namespace: spu-cache
+roleRef:
+  kind: Role
+  name: spu-cache-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ------- ClusterRole: Node 信息读取（拓扑感知） -------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spu-cache-node-reader
+  labels:
+    app: spu-cache-service
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+
+---
+# ------- ClusterRoleBinding: SA → ClusterRole -------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spu-cache-node-reader-binding
+  labels:
+    app: spu-cache-service
+subjects:
+  - kind: ServiceAccount
+    name: spu-cache-service
+    namespace: spu-cache
+roleRef:
+  kind: ClusterRole
+  name: spu-cache-node-reader
+  apiGroup: rbac.authorization.k8s.io

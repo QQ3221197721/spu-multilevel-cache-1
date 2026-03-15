@@ -4,13 +4,12 @@ import com.alibaba.fastjson2.JSON;
 import com.ecommerce.cache.service.L1CacheService;
 import com.ecommerce.cache.service.L2RedisService;
 import com.ecommerce.cache.service.L3MemcachedService;
-import org.apache.rocketmq.spring.annotation.ConsumeMode;
-import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
-import org.apache.rocketmq.spring.core.RocketMQListener;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -20,25 +19,19 @@ import java.util.List;
  * 缓存失效消费者
  * 消费 Canal 发送的 binlog 变更消息，顺序删除 L1/L2/L3 缓存
  * 支持幂等消费，确保不丢不重
+ * <p>
+ * Kafka 通过 partition key 保证同一 Key 的消息顺序
  */
 @Component
-@RocketMQMessageListener(
-    topic = "CACHE_INVALIDATE_TOPIC",
-    consumerGroup = "CG_CACHE_INVALIDATE",
-    // 顺序消费，保证同一 Key 的操作顺序
-    consumeMode = ConsumeMode.ORDERLY,
-    // 最大重试次数
-    maxReconsumeTimes = 3
-)
-public class CacheInvalidateConsumer implements RocketMQListener<String> {
-    
+public class CacheInvalidateConsumer {
+
     private static final Logger log = LoggerFactory.getLogger(CacheInvalidateConsumer.class);
-    
+
     // 幂等 Key 前缀
     private static final String IDEMPOTENT_PREFIX = "cache:idempotent:";
     // 幂等 Key 过期时间
     private static final Duration IDEMPOTENT_TTL = Duration.ofHours(24);
-    
+
     private final L1CacheService l1CacheService;
     private final L2RedisService l2RedisService;
     private final L3MemcachedService l3MemcachedService;
@@ -54,46 +47,51 @@ public class CacheInvalidateConsumer implements RocketMQListener<String> {
         this.redissonClient = redissonClient;
     }
 
-    @Override
-    public void onMessage(String message) {
+    @KafkaListener(
+            topics = "CACHE_INVALIDATE_TOPIC",
+            groupId = "CG_CACHE_INVALIDATE",
+            concurrency = "4"
+    )
+    public void onMessage(ConsumerRecord<String, String> record) {
+        String message = record.value();
         CacheInvalidateMessage msg = JSON.parseObject(message, CacheInvalidateMessage.class);
-        
-        log.info("Received cache invalidate message: messageId={}, table={}, key={}", 
-            msg.getMessageId(), msg.getTableName(), msg.getPrimaryKey());
-        
+
+        log.info("收到缓存失效消息: messageId={}, table={}, key={}, partition={}, offset={}",
+                msg.getMessageId(), msg.getTableName(), msg.getPrimaryKey(),
+                record.partition(), record.offset());
+
         // ========== 幂等检查 ==========
         if (isProcessed(msg.getMessageId())) {
-            log.info("Message already processed, skipping: {}", msg.getMessageId());
+            log.info("消息已处理，跳过: {}", msg.getMessageId());
             return;
         }
-        
+
         try {
             // ========== 顺序删除 L1 -> L2 -> L3 ==========
             List<String> cacheKeys = msg.getCacheKeys();
-            
+
             for (String key : cacheKeys) {
                 // 1. 删除 L1 本地缓存
                 l1CacheService.invalidate(key);
-                log.debug("L1 invalidated: {}", key);
-                
+                log.debug("L1 已失效: {}", key);
+
                 // 2. 删除 L2 Redis（包括热点 Key 分片）
                 l2RedisService.deleteHotKey(key);
-                log.debug("L2 invalidated: {}", key);
-                
+                log.debug("L2 已失效: {}", key);
+
                 // 3. 删除 L3 Memcached
                 l3MemcachedService.delete(key);
-                log.debug("L3 invalidated: {}", key);
+                log.debug("L3 已失效: {}", key);
             }
-            
+
             // ========== 标记幂等 ==========
             markProcessed(msg.getMessageId());
-            
-            log.info("Cache invalidate completed: messageId={}, keys={}", 
-                msg.getMessageId(), cacheKeys.size());
-            
+
+            log.info("缓存失效完成: messageId={}, keys={}", msg.getMessageId(), cacheKeys.size());
+
         } catch (Exception e) {
-            log.error("Cache invalidate failed: messageId={}", msg.getMessageId(), e);
-            throw e; // 抛出异常触发重试
+            log.error("缓存失效失败: messageId={}", msg.getMessageId(), e);
+            throw e; // 抛出异常触发 Kafka 重试
         }
     }
 
@@ -126,7 +124,7 @@ public class CacheInvalidateConsumer implements RocketMQListener<String> {
         private List<String> cacheKeys;
         private long timestamp;
         private String traceId;
-        
+
         // Getters and Setters
         public String getMessageId() { return messageId; }
         public void setMessageId(String messageId) { this.messageId = messageId; }

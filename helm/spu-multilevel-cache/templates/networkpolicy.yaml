@@ -1,0 +1,233 @@
+{{- if .Values.networkPolicy.enabled }}
+# 默认拒绝所有流量
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "spu-cache.fullname" . }}-default-deny
+  namespace: {{ include "spu-cache.namespace" . }}
+  labels:
+    {{- include "spu-cache.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "spu-cache.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 入站规则
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "spu-cache.fullname" . }}-ingress
+  namespace: {{ include "spu-cache.namespace" . }}
+  labels:
+    {{- include "spu-cache.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "spu-cache.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- if .Values.networkPolicy.ingress.allowIngressNginx }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+    {{- end }}
+    {{- if .Values.networkPolicy.ingress.allowPrometheus }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+    {{- end }}
+    {{- if .Values.networkPolicy.ingress.allowSameNamespace }}
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+    {{- end }}
+    {{- if .Values.networkPolicy.ingress.allowIstioControlPlane }}
+    # Istio 控制平面
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+        - protocol: TCP
+          port: 15090
+    {{- end }}
+---
+# 出站规则
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "spu-cache.fullname" . }}-egress
+  namespace: {{ include "spu-cache.namespace" . }}
+  labels:
+    {{- include "spu-cache.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "spu-cache.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.networkPolicy.egress.allowDNS }}
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowMySQL }}
+    # MySQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowRedis }}
+    # Redis Cluster
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis-cluster
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 16379
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowMemcached }}
+    # Memcached
+    - to:
+        - podSelector:
+            matchLabels:
+              app: memcached
+      ports:
+        - protocol: TCP
+          port: 11211
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowKafka }}
+    # Kafka
+    - to:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowCanal }}
+    # Canal
+    - to:
+        - podSelector:
+            matchLabels:
+              app: canal-server
+      ports:
+        - protocol: TCP
+          port: 11111
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowZipkin }}
+    # Zipkin
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: zipkin
+      ports:
+        - protocol: TCP
+          port: 9411
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowLogstash }}
+    # Logstash
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: logging
+      ports:
+        - protocol: TCP
+          port: 5000
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowApollo }}
+    # Apollo
+    - to:
+        - podSelector:
+            matchLabels:
+              app: apollo-configservice
+      ports:
+        - protocol: TCP
+          port: 8080
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowElasticsearch }}
+    # Elasticsearch
+    - to:
+        - podSelector:
+            matchLabels:
+              app: elasticsearch
+      ports:
+        - protocol: TCP
+          port: 9200
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowSeata }}
+    # Seata
+    - to:
+        - podSelector:
+            matchLabels:
+              app: seata-server
+      ports:
+        - protocol: TCP
+          port: 8091
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowIstioControlPlane }}
+    # Istio 控制平面 (istiod)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 15010
+        - protocol: TCP
+          port: 15012
+        - protocol: TCP
+          port: 15014
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowEbpfExporter }}
+    # eBPF Exporter
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: ebpf-exporter
+      ports:
+        - protocol: TCP
+          port: 9435
+    {{- end }}
+{{- end }}

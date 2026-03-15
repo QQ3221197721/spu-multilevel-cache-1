@@ -1,0 +1,56 @@
+# ============================================================
+# Chaos Mesh — I/O 混沌实验
+# ============================================================
+# 测试 spu-cache-service 在磁盘 I/O 异常场景下的表现：
+#   1. I/O 延迟 — 磁盘读写延迟增加
+#   2. I/O 错误 — 磁盘读写返回错误
+#   3. I/O 属性变更 — 文件属性篡改
+# ============================================================
+
+# ---- 实验1：I/O 延迟（模拟磁盘慢速） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: spu-cache-io-latency
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: io
+    experiment: io-latency
+spec:
+  action: latency
+  mode: one
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  volumePath: /app/logs
+  path: "/app/logs/*"
+  delay: "100ms"
+  percent: 50
+  duration: "120s"
+---
+# ---- 实验2：I/O 错误（模拟磁盘故障） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: spu-cache-io-fault
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: io
+    experiment: io-fault
+spec:
+  action: fault
+  mode: one
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  volumePath: /app/logs
+  path: "/app/logs/*"
+  errno: 5   # EIO — I/O error
+  percent: 30
+  duration: "60s"

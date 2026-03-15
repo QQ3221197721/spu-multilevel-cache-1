@@ -1,0 +1,67 @@
+# ============================================================
+# GraalVM Native Image — 多阶段构建
+# ============================================================
+# 特性:
+#   - 基于 GraalVM CE 21 构建原生可执行文件
+#   - 启动时间 < 100ms（传统 JVM 约 10-30s）
+#   - 内存占用降低 70-80%
+#   - 适合 Serverless / 快速扩缩容场景
+# 用法:
+#   docker build -f Dockerfile.native -t spu-cache-service:native .
+# ============================================================
+
+# ---- 第一阶段：Maven 编译 + AOT 处理 ----
+FROM ghcr.io/graalvm/graalvm-community:21 AS builder
+
+WORKDIR /app
+
+# 安装 Maven
+RUN microdnf install -y maven findutils && microdnf clean all
+
+# 分层缓存依赖下载
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+
+# 复制源码
+COPY src ./src
+
+# Spring AOT 处理 + Native Image 编译
+# 注意：native-maven-plugin 在 native profile 中定义
+RUN mvn clean package -Pnative -DskipTests -Dmaven.javadoc.skip=true \
+    -Dspring.aot.enabled=true \
+    --batch-mode \
+    --no-transfer-progress
+
+# ---- 第二阶段：最小运行时镜像 ----
+FROM gcr.io/distroless/base-debian12
+
+LABEL maintainer="ecommerce-team"
+LABEL description="SPU Multi-Level Cache Service — GraalVM Native Image"
+LABEL version="1.0.0-native"
+LABEL build.type="native"
+
+WORKDIR /app
+
+# 从构建阶段复制原生可执行文件
+COPY --from=builder /app/target/spu-multilevel-cache /app/spu-cache-service
+
+# 复制 Lua 脚本（缓存操作脚本）
+COPY src/main/resources/lua /app/lua
+
+# 设置时区（distroless 镜像通过环境变量设置）
+ENV TZ=Asia/Shanghai
+
+# 应用端口
+EXPOSE 8080
+
+# 健康检查（distroless 没有 shell，需使用 grpc_health_probe 或跳过）
+# 在 K8s 中使用 httpGet 探针替代
+# HEALTHCHECK 在 distroless 中不可用
+
+# 原生镜像启动参数
+# 注意：GraalVM Native Image 不支持 -Xms/-Xmx 等 JVM 参数
+# 使用 Native Image 特有参数控制内存
+ENV SPRING_PROFILES_ACTIVE=prod
+
+# 直接运行原生可执行文件（无 JVM）
+ENTRYPOINT ["/app/spu-cache-service"]

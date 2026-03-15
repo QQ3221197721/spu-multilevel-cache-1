@@ -1,0 +1,208 @@
+# ========================================
+# SPU 多级缓存服务 - 开发环境配置
+# ========================================
+
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  # 数据源配置 - 开发环境
+  datasource:
+    url: jdbc:mysql://localhost:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: root123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # JPA 配置 - 开发环境
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: validate
+
+  # Flyway - 开发环境启用
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+  # Kafka - 开发环境（本地单机）
+  kafka:
+    bootstrap-servers: localhost:29092
+    producer:
+      acks: all
+      retries: 3
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+
+  # Elasticsearch - 开发环境
+  elasticsearch:
+    uris: http://localhost:9200
+
+  # Redis 配置 - 单机模式（开发环境）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 20
+          min-idle: 5
+
+# Memcached 配置 - 开发环境
+memcached:
+  primary:
+    servers: localhost:11211
+  backup:
+    servers: localhost:11212
+  default-expiration: 120
+  retry-count: 2
+  retry-interval: 50
+
+# Kafka 消息队列 - 开发环境
+kafka:
+  dead-letter:
+    enabled: true
+    alert-enabled: false
+    persist-enabled: true
+  outbox:
+    enabled: true
+    retry-interval-ms: 10000
+    max-retry: 3
+    cleanup-days: 3
+
+# 多级缓存配置 - 开发环境（降低阈值便于测试）
+multilevel-cache:
+  caffeine:
+    initial-capacity: 500
+    maximum-size: 2000
+    maximum-weight: 64
+    expire-after-write: 60
+    expire-after-access: 30
+    refresh-after-write: 20
+    record-stats: true
+    
+  hot-key:
+    window-seconds: 5
+    threshold-qps: 100
+    detect-interval-ms: 500
+    shard-count: 5
+    local-counter-enabled: true
+    decay-factor: 0.9
+  
+  parallel-read:
+    enabled: true
+    timeout-ms: 100
+    batch-size: 16
+  
+  async-refresh:
+    enabled: true
+    threshold-ttl: 30
+    max-concurrent: 50
+  
+  preload:
+    enabled: true
+    batch-size: 50
+    parallel-threads: 4
+    scheduled-interval: 300000
+  
+  resilience:
+    circuit-breaker:
+      failure-rate-threshold: 60
+      slow-call-rate-threshold: 90
+      slow-call-duration-threshold-ms: 200
+      wait-duration-in-open-state-seconds: 15
+    rate-limiter:
+      cache-read-limit: 5000
+      db-load-limit: 500
+    bulkhead:
+      redis-max-concurrent: 100
+      memcached-max-concurrent: 50
+
+# 布隆过滤器配置 - 开发环境
+bloom-filter:
+  expected-insertions: 100000
+  false-positive-rate: 0.01
+  name: spu:bloom:filter:dev
+
+# Sentinel 流量控制 - 开发环境（更宽松）
+sentinel:
+  transport:
+    dashboard: localhost:8858
+    port: 8719
+  eager: true
+  flow:
+    cache-read-qps: 5000
+    db-load-qps: 500
+  degrade:
+    redis:
+      slow-ratio-threshold: 0.9
+      recovery-timeout-s: 15
+    memcached:
+      slow-ratio-threshold: 0.9
+      recovery-timeout-s: 15
+    database:
+      error-ratio-threshold: 0.6
+      recovery-timeout-s: 15
+
+# 日志级别 - 开发环境
+logging:
+  level:
+    com.ecommerce.cache: DEBUG
+    org.springframework.data.redis: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.alibaba.csp.sentinel: DEBUG
+    io.seata: DEBUG
+    org.apache.kafka: WARN
+  # ELK - 开发环境本地 Logstash
+  logstash:
+    host: localhost
+    port: 5000
+
+# Seata - 开发环境（本地单机，改用 Apollo 注册）
+seata:
+  enabled: true
+  registry:
+    type: file
+  config:
+    type: file
+
+# Zipkin - 开发环境
+zipkin:
+  endpoint: http://localhost:9411/api/v2/spans
+  enabled: true
+
+# Apollo - 开发环境
+apollo:
+  meta: http://localhost:8070
+
+# ShardingSphere - 开发环境关闭（单库模式）
+sharding:
+  enabled: false
+
+# Canal - 开发环境（本地单机）
+canal:
+  enabled: ${CANAL_ENABLED:true}
+  health-check-url: http://localhost:11112/metrics
+  consistency:
+    delayed-double-delete-enabled: true
+    delayed-delete-ms: 500
+    version-check-enabled: true
+    audit-enabled: true
+    audit-sample-rate: 0.2
+    audit-auto-fix: true
+    max-binlog-delay-alert-seconds: 30
+
+# Actuator 端点 - 开发环境全部开放
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always

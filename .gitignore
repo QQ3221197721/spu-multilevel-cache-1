@@ -61,10 +61,11 @@ nbdist/
 ehthumbs.db
 Thumbs.db
 
-# Application
+# Application - 仅忽略本地私有配置（带敏感信息）
 application-local.yml
-application-dev.yml
-application-prod.yml
+application-local.properties
+# 注意：application-dev.yml 和 application-prod.yml 已纳入版本管理
+# 敏感信息通过环境变量注入，不硬编码在配置文件中
 
 # Sensitive files
 *.pem

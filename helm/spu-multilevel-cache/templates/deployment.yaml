@@ -1,0 +1,200 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spu-cache.fullname" . }}
+  namespace: {{ include "spu-cache.namespace" . }}
+  labels:
+    {{- include "spu-cache.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "spu-cache.selectorLabels" . | nindent 6 }}
+  {{- with .Values.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "spu-cache.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.istio.enabled }}
+        # Istio Sidecar 注入
+        sidecar.istio.io/inject: {{ .Values.istio.sidecar.inject | quote }}
+        sidecar.istio.io/proxyCPU: {{ .Values.istio.sidecar.proxyCPU | quote }}
+        sidecar.istio.io/proxyMemory: {{ .Values.istio.sidecar.proxyMemory | quote }}
+        sidecar.istio.io/proxyCPULimit: {{ .Values.istio.sidecar.proxyCPULimit | quote }}
+        sidecar.istio.io/proxyMemoryLimit: {{ .Values.istio.sidecar.proxyMemoryLimit | quote }}
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: {{ .Values.istio.sidecar.holdApplicationUntilProxyStarts }}
+          terminationDrainDuration: {{ .Values.istio.sidecar.terminationDrainDuration }}
+        {{- end }}
+        {{- if .Values.ebpf.enabled }}
+        # eBPF 可观测性
+        cilium.io/hubble-visibility: {{ .Values.ebpf.hubbleVisibility | quote }}
+        ebpf.io/monitor: {{ .Values.ebpf.monitor | quote }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "spu-cache.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken | default true }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 60 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ include "spu-cache.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.containerPort }}
+              name: http
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            # ConfigMap 引用
+            - name: REDIS_CLUSTER_NODES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: redis.cluster.nodes
+            - name: MEMCACHED_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: memcached.servers
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: kafka.bootstrap.servers
+            - name: ZIPKIN_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: zipkin.endpoint
+            - name: LOGSTASH_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: logstash.host
+            - name: APOLLO_META
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: apollo.meta
+            - name: ES_URIS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: es.uris
+            - name: CANAL_SERVER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "spu-cache.configMapName" . }}
+                  key: canal.server.host
+            {{- if .Values.istio.enabled }}
+            # Istio 元数据
+            - name: ISTIO_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if .Values.ebpf.enabled }}
+            # eBPF 监控
+            - name: EBPF_MONITORING
+              value: "true"
+            {{- end }}
+            # Secret 引用
+            - name: MYSQL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spu-cache.secretName" . }}
+                  key: mysql.url
+            - name: MYSQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spu-cache.secretName" . }}
+                  key: mysql.username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spu-cache.secretName" . }}
+                  key: mysql.password
+            - name: MYSQL_SLAVE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spu-cache.secretName" . }}
+                  key: mysql.slave.url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spu-cache.secretName" . }}
+                  key: jwt.secret
+            - name: DATA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "spu-cache.secretName" . }}
+                  key: encryption.key
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- with .Values.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

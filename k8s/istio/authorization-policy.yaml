@@ -1,0 +1,108 @@
+# ============================================================
+# Istio AuthorizationPolicy — 零信任访问控制
+# ============================================================
+# 精细化的服务级 RBAC：
+#   1. 仅允许指定来源服务访问 spu-cache-service
+#   2. 限制 HTTP 方法和路径
+#   3. JWT 令牌校验（Istio RequestAuthentication 配合使用）
+# ============================================================
+
+# 全局拒绝策略（命名空间默认拒绝所有非授权请求）
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: spu-cache-deny-all
+  namespace: spu-cache
+  labels:
+    mesh: istio
+spec:
+  # 空规则 = 拒绝所有未被其他策略允许的请求
+  {}
+---
+# 允许 Istio Ingress Gateway 访问 spu-cache-service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: spu-cache-allow-ingress
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  selector:
+    matchLabels:
+      app: spu-cache-service
+  action: ALLOW
+  rules:
+    # 允许来自 Istio Ingress Gateway 的请求
+    - from:
+        - source:
+            namespaces: ["istio-system"]
+            principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"]
+      to:
+        - operation:
+            methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+            paths: ["/api/*", "/actuator/health", "/actuator/info"]
+---
+# 允许 Prometheus 抓取指标
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: spu-cache-allow-prometheus
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  selector:
+    matchLabels:
+      app: spu-cache-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces: ["monitoring"]
+            principals: ["cluster.local/ns/monitoring/sa/prometheus-server"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/actuator/prometheus", "/actuator/health"]
+---
+# 允许同命名空间 Pod 互访（金丝雀 ↔ 稳定版）
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: spu-cache-allow-internal
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  selector:
+    matchLabels:
+      app: spu-cache-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces: ["spu-cache"]
+---
+# JWT 请求认证（与 AuthorizationPolicy 配合实现端到端 JWT 校验）
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: spu-cache-jwt-auth
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  selector:
+    matchLabels:
+      app: spu-cache-service
+  jwtRules:
+    - issuer: "spu-detail-service"
+      # 可配置 JWKS 端点进行公钥验证
+      # jwksUri: "https://auth.example.com/.well-known/jwks.json"
+      forwardOriginalToken: true
+      outputPayloadToHeader: "x-jwt-payload"

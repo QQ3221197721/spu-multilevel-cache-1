@@ -1,0 +1,121 @@
+# ============================================================
+# Istio VirtualService — 流量路由 + 金丝雀发布 + 故障注入 + 重试
+# ============================================================
+# 功能：
+#   1. 基于权重的金丝雀流量分割
+#   2. 基于 Header 的精确路由（测试/灰度用户）
+#   3. 自动重试 + 超时配置
+#   4. 故障注入（延迟/中断，仅限测试环境）
+#   5. 请求镜像（流量复制到影子服务）
+# ============================================================
+
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: spu-cache-service
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  hosts:
+    - spu-cache-service
+    - spu-cache.example.com
+  gateways:
+    - spu-cache-gateway
+    - mesh     # 同时适用于 mesh 内部流量
+  http:
+    # ---- 规则1：Header 精确路由（测试用户走金丝雀） ----
+    - match:
+        - headers:
+            x-canary:
+              exact: "true"
+        - headers:
+            x-user-group:
+              exact: "beta-tester"
+      route:
+        - destination:
+            host: spu-cache-service
+            subset: canary
+            port:
+              number: 8080
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 3s
+        retryOn: 5xx,reset,connect-failure,retriable-4xx
+
+    # ---- 规则2：基于权重的金丝雀流量分割 ----
+    - match:
+        - uri:
+            prefix: /api/spu
+      route:
+        - destination:
+            host: spu-cache-service
+            subset: stable
+            port:
+              number: 8080
+          weight: 90
+        - destination:
+            host: spu-cache-service
+            subset: canary
+            port:
+              number: 8080
+          weight: 10
+      # 超时与重试
+      timeout: 10s
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: 5xx,reset,connect-failure,retriable-4xx
+        retryRemoteLocalities: true
+      # 跨域配置
+      corsPolicy:
+        allowOrigins:
+          - exact: "https://www.example.com"
+          - regex: "https://.*\\.example\\.com"
+        allowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        allowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Request-ID
+          - X-Canary
+        maxAge: "24h"
+        allowCredentials: true
+
+    # ---- 规则3：故障注入（仅测试/灰度环境激活） ----
+    - match:
+        - headers:
+            x-fault-inject:
+              exact: "true"
+      route:
+        - destination:
+            host: spu-cache-service
+            subset: stable
+      fault:
+        delay:
+          # 模拟 10% 请求产生 500ms 延迟
+          percentage:
+            value: 10.0
+          fixedDelay: 500ms
+        abort:
+          # 模拟 5% 请求返回 503
+          percentage:
+            value: 5.0
+          httpStatus: 503
+
+    # ---- 规则4：默认路由（兜底） ----
+    - route:
+        - destination:
+            host: spu-cache-service
+            subset: stable
+            port:
+              number: 8080
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 3s
+        retryOn: 5xx,reset,connect-failure

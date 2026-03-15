@@ -1,0 +1,18 @@
+apiVersion: v2
+name: spu-multilevel-cache
+description: SPU 多级缓存服务 — 高性能电商商品详情缓存系统
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/ecommerce/spu-multilevel-cache
+maintainers:
+  - name: ecommerce-team
+    email: team@ecommerce.com
+keywords:
+  - cache
+  - redis
+  - memcached
+  - multilevel-cache
+  - spring-boot
+  - ecommerce
+dependencies: []

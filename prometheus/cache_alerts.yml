@@ -193,3 +193,192 @@ groups:
         annotations:
           summary: "布隆过滤器填充率过高"
           description: "填充率 {{ $value | printf \"%.2f\" }}，接近容量上限，误判率可能上升"
+
+      # ==================== JVM 告警 ====================
+
+      # JVM 堆内存使用率超过 85%
+      - alert: JvmHeapUsageHigh
+        expr: |
+          jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.85
+        for: 3m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "JVM 堆内存使用率过高"
+          description: "实例 {{ $labels.instance }} 堆内存使用率 {{ $value | printf \"%.1f\" }}%，超过 85%"
+
+      # JVM 堆内存使用率超过 95%（紧急）
+      - alert: JvmHeapUsageCritical
+        expr: |
+          jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.95
+        for: 1m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "JVM 堆内存即将耗尽"
+          description: "实例 {{ $labels.instance }} 堆内存使用率 {{ $value | printf \"%.1f\" }}%，接近 OOM"
+
+      # GC 暂停时间过长
+      - alert: JvmGcPauseHigh
+        expr: |
+          rate(jvm_gc_pause_seconds_sum[5m]) / rate(jvm_gc_pause_seconds_count[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "GC 平均暂停时间过长"
+          description: "实例 {{ $labels.instance }} GC 平均暂停 {{ $value | printf \"%.2f\" }}s"
+
+      # GC 频率过高
+      - alert: JvmGcFrequencyHigh
+        expr: |
+          rate(jvm_gc_pause_seconds_count[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "GC 频率过高"
+          description: "实例 {{ $labels.instance }} 每秒 GC {{ $value | printf \"%.1f\" }} 次"
+
+      # JVM 线程数过高
+      - alert: JvmThreadCountHigh
+        expr: jvm_threads_live_threads > 2000
+        for: 5m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "JVM 线程数过高"
+          description: "实例 {{ $labels.instance }} 活跃线程数 {{ $value }}，超过 2000"
+
+      # JVM 死锁检测
+      - alert: JvmDeadlockDetected
+        expr: jvm_threads_deadlocked > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "检测到 JVM 死锁"
+          description: "实例 {{ $labels.instance }} 死锁线程数 {{ $value }}"
+
+      # ==================== 慢查询告警 ====================
+
+      # 慢查询速率过高
+      - alert: SlowQueryRateHigh
+        expr: |
+          rate(db_slow_query_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "数据库慢查询速率过高"
+          description: "每秒 {{ $value | printf \"%.1f\" }} 个慢查询"
+
+      # 查询 TP99 延迟过高
+      - alert: DbQueryLatencyHigh
+        expr: |
+          histogram_quantile(0.99, rate(db_query_duration_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "数据库查询 TP99 延迟过高"
+          description: "DB TP99 延迟 {{ $value | printf \"%.2f\" }}s，超过 500ms"
+
+      # ==================== 业务指标告警 ====================
+
+      # 接口成功率低于 99%
+      - alert: BusinessSuccessRateLow
+        expr: |
+          rate(business_http_success_total[5m]) /
+          rate(business_http_requests_total[5m]) < 0.99
+        for: 3m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "接口成功率低于 99%"
+          description: "当前成功率 {{ $value | printf \"%.4f\" }}，低于 99% 目标"
+
+      # 接口成功率低于 95%（紧急）
+      - alert: BusinessSuccessRateCritical
+        expr: |
+          rate(business_http_success_total[5m]) /
+          rate(business_http_requests_total[5m]) < 0.95
+        for: 1m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "接口成功率低于 95%"
+          description: "当前成功率 {{ $value | printf \"%.4f\" }}，服务严重异常"
+
+      # QPS 突降
+      - alert: BusinessQpsDrop
+        expr: |
+          rate(business_http_requests_total[5m]) < 10
+            and
+          rate(business_http_requests_total[30m] offset 1h) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "QPS 突降（可能服务异常）"
+          description: "当前 QPS {{ $value | printf \"%.0f\" }}，相比 1 小时前大幅下降"
+
+      # 接口 TP99 延迟过高（业务层）
+      - alert: BusinessLatencyHigh
+        expr: |
+          histogram_quantile(0.99, rate(business_http_request_duration_seconds_bucket[5m])) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "业务接口 TP99 延迟过高"
+          description: "TP99 延迟 {{ $value | printf \"%.3f\" }}s，超过 100ms"
+
+      # 5xx 错误率过高
+      - alert: ServerErrorRateHigh
+        expr: |
+          rate(business_http_server_errors_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "5xx 服务端错误率过高"
+          description: "每秒 {{ $value | printf \"%.1f\" }} 个 5xx 错误"
+
+      # ==================== 连接池告警 ====================
+
+      # HikariCP 连接池使用率过高
+      - alert: HikariPoolUsageHigh
+        expr: |
+          hikaricp_connections_active / hikaricp_connections_max > 0.85
+        for: 3m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "HikariCP 连接池使用率过高"
+          description: "{{ $labels.pool }} 使用率 {{ $value | printf \"%.1f\" }}%"
+
+      # HikariCP 等待连接线程过多
+      - alert: HikariPoolWaitingHigh
+        expr: hikaricp_connections_pending > 10
+        for: 1m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "HikariCP 等待连接线程过多"
+          description: "{{ $labels.pool }} 有 {{ $value }} 个线程在等待连接"

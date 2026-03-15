@@ -19,6 +19,63 @@ spring:
     virtual:
       enabled: true
   
+  # Kafka 消息队列
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+      compression-type: lz4
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 32
+  
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    uris: ${ES_URIS:http://localhost:9200}
+    connection-timeout: 5s
+    socket-timeout: 30s
+  
+  # 数据源配置（默认 MySQL）
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      pool-name: spu-cache-hikari
+  
+  # JPA 配置
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+  
+  # Flyway 数据库迁移
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    table: flyway_schema_history
+    validate-on-migrate: true
+  
   # 缓存配置
   cache:
     type: caffeine
@@ -165,16 +222,17 @@ redisson:
     threads: 16
     nettyThreads: 32
 
-# RocketMQ 配置
-rocketmq:
-  name-server: ${ROCKETMQ_NAMESRV:rocketmq-namesrv:9876}
-  producer:
-    group: PG_CACHE_INVALIDATE
-    send-message-timeout: 3000
-    retry-times-when-send-failed: 2
-    retry-times-when-send-async-failed: 2
-  consumer:
-    group: CG_CACHE_INVALIDATE
+# Kafka 死信队列 & Outbox 配置
+kafka:
+  dead-letter:
+    enabled: true
+    alert-enabled: true
+    persist-enabled: true
+  outbox:
+    enabled: true
+    retry-interval-ms: 5000
+    max-retry: 5
+    cleanup-days: 7
 
 # 布隆过滤器配置
 bloom-filter:
@@ -198,12 +256,19 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics,caches,circuitbreakers,ratelimiters
+        include: health,info,prometheus,metrics,caches,circuitbreakers,ratelimiters,threaddump,heapdump,env,loggers
   endpoint:
     health:
       show-details: always
       probes:
         enabled: true
+      group:
+        # K8s liveness: 只检查核心存活状态
+        liveness:
+          include: livenessState,ping
+        # K8s readiness: 检查所有依赖是否就绪
+        readiness:
+          include: readinessState,redis,db,cacheHealthIndicator,redisPoolHealth,databasePoolHealth
   metrics:
     tags:
       application: ${spring.application.name}
@@ -215,8 +280,10 @@ management:
         http.server.requests: true
         cache.l1.get.latency: true
         cache.l2.hit.latency: true
+        db.query.duration: true
+        business.http.request.duration: true
       percentiles:
-        all: 0.5, 0.75, 0.9, 0.95, 0.99
+        all: 0.5, 0.75, 0.9, 0.95, 0.99, 0.999
   tracing:
     sampling:
       probability: 0.1
@@ -225,54 +292,156 @@ management:
       enabled: true
     ratelimiters:
       enabled: true
+    redis:
+      enabled: true
+    db:
+      enabled: true
 
-# Resilience4j 配置
-resilience4j:
-  circuitbreaker:
-    configs:
-      default:
-        registerHealthIndicator: true
-        slidingWindowType: COUNT_BASED
-        slidingWindowSize: 100
-        minimumNumberOfCalls: 10
-        permittedNumberOfCallsInHalfOpenState: 5
-        automaticTransitionFromOpenToHalfOpenEnabled: true
-        waitDurationInOpenState: 30s
-        failureRateThreshold: 50
-        slowCallRateThreshold: 80
-        slowCallDurationThreshold: 100ms
-    instances:
-      redis:
-        baseConfig: default
-      memcached:
-        baseConfig: default
-      database:
-        baseConfig: default
-        failureRateThreshold: 30
-  ratelimiter:
-    configs:
-      default:
-        registerHealthIndicator: true
-        limitForPeriod: 10000
-        limitRefreshPeriod: 1s
-        timeoutDuration: 10ms
-    instances:
-      cacheRead:
-        baseConfig: default
-      dbLoad:
-        baseConfig: default
-        limitForPeriod: 1000
-  bulkhead:
-    configs:
-      default:
-        maxConcurrentCalls: 500
-        maxWaitDuration: 50ms
-    instances:
-      redis:
-        baseConfig: default
-      memcached:
-        baseConfig: default
-        maxConcurrentCalls: 200
+# ========== 安全防护配置 ==========
+security:
+  # API 限流防刷
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    global-qps: ${RATE_LIMIT_GLOBAL_QPS:50000}
+    ip-qps: ${RATE_LIMIT_IP_QPS:100}
+    api-qps: ${RATE_LIMIT_API_QPS:10000}
+    ip-block-threshold: 50
+    ip-block-duration-seconds: 300
+  # SQL注入/XSS防护
+  injection-protect:
+    enabled: ${INJECTION_PROTECT_ENABLED:true}
+    log-only: false
+  # 敏感数据加密 (AES-256-GCM)
+  encryption:
+    enabled: ${DATA_ENCRYPTION_ENABLED:false}
+    key: ${DATA_ENCRYPTION_KEY:}
+  # 审计日志
+  audit:
+    enabled: ${AUDIT_LOG_ENABLED:true}
+    retention-days: 90
+
+# ========== 监控配置 ==========
+monitoring:
+  slow-query:
+    threshold-ms: ${SLOW_QUERY_THRESHOLD_MS:100}
+    max-history: 200
+  business-metrics:
+    enabled: true
+    log-interval-seconds: 60
+
+# Seata 分布式事务
+seata:
+  enabled: ${SEATA_ENABLED:true}
+  application-id: ${spring.application.name}
+  tx-service-group: spu_cache_tx_group
+  config:
+    type: file
+  registry:
+    type: file
+  service:
+    vgroup-mapping:
+      spu_cache_tx_group: default
+
+# 日志配置
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    com.ecommerce.cache: DEBUG
+    com.ecommerce.cache.optimization: DEBUG
+    io.lettuce.core: WARN
+    org.redisson: WARN
+  # Logstash 连接信息（供 logback-spring.xml 读取）
+  logstash:
+    host: ${LOGSTASH_HOST:localhost}
+    port: ${LOGSTASH_PORT:5000}
+
+# Zipkin 链路追踪
+zipkin:
+  endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+  enabled: ${ZIPKIN_ENABLED:true}
+
+# ========== Canal binlog 监听 & 缓存一致性 ==========
+canal:
+  enabled: ${CANAL_ENABLED:true}
+  binlog-topic: ${CANAL_BINLOG_TOPIC:CANAL_BINLOG_TOPIC}
+  spu-binlog-topic: CANAL_SPU_BINLOG
+  sku-binlog-topic: CANAL_SKU_BINLOG
+  consumer-group: CG_CANAL_BINLOG
+  health-check-url: http://${CANAL_HOST:canal-server}:11112/metrics
+  table-mapping:
+    spu-key-prefix: "spu:detail:"
+    sku-key-prefix: "sku:detail:"
+    spu-detail-key-prefix: "spu:ext:"
+    spu-attribute-key-prefix: "spu:attr:"
+  consistency:
+    # 延迟双删：先删缓存，延迟后再删一次（应对主从复制延迟）
+    delayed-double-delete-enabled: true
+    delayed-delete-ms: 1000
+    # 版本号校验：写入缓存时携带版本，读取时比对
+    version-check-enabled: true
+    version-ttl-seconds: 3600
+    version-key-prefix: "cache:version:"
+    # 一致性审计：采样比对 DB 与缓存
+    audit-enabled: true
+    audit-sample-rate: 0.05
+    audit-window-seconds: 60
+    audit-auto-fix: true
+    max-binlog-delay-alert-seconds: 10
+
+# ========== ShardingSphere 分库分表 + 读写分离 ==========
+# 默认关闭，仅在生产环境且 SPU 数据量超过亿级时启用
+sharding:
+  enabled: ${SHARDING_ENABLED:false}
+  master:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+  slave:
+    url: ${MYSQL_SLAVE_URL:jdbc:mysql://localhost:3307/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_SLAVE_USERNAME:root}
+    password: ${MYSQL_SLAVE_PASSWORD:root123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+  table:
+    spu-shard-count: 16
+    spu-sharding-column: spu_id
+    spu-algorithm: MOD
+  read-write-split:
+    enabled: true
+    load-balancer: ROUND_ROBIN
+  props:
+    sql-show: false
+    max-connections-size-per-query: 1
+
+# Sentinel 流量控制配置
+sentinel:
+  transport:
+    dashboard: ${SENTINEL_DASHBOARD:localhost:8858}
+    port: 8719
+  eager: true
+  flow:
+    cache-read-qps: 10000
+    db-load-qps: 1000
+  degrade:
+    redis:
+      slow-ratio-threshold: 0.8
+      recovery-timeout-s: 30
+    memcached:
+      slow-ratio-threshold: 0.8
+      recovery-timeout-s: 30
+    database:
+      error-ratio-threshold: 0.5
+      recovery-timeout-s: 30
 
 # ========== 全面优化配置 v2.0 ==========
 optimization:
@@ -557,8 +726,8 @@ optimization:
     top-k: 100
     hot-threshold: 1000
   
-  # 智能分片路由
-  shard:
+  # 智能分片路由 (V5)
+  v5-shard:
     enabled: true
     min-count: 4
     max-count: 64
@@ -597,8 +766,8 @@ optimization:
     markov-lookback: 3
     association-min-support: 0.05
   
-  # 数据库优化配置
-  database:
+  # 数据库优化配置 (V5)
+  v5-database:
     enabled: true
     pool:
       min-size: 10
@@ -642,8 +811,8 @@ optimization:
     check-interval-ms: 500
     eviction-batch-size: 100
   
-  # 智能预测预取
-  prefetch:
+  # 智能预测预取 (V6)
+  v6-prefetch:
     enabled: true
     max-concurrent: 50
     threshold: 0.6
@@ -675,8 +844,8 @@ optimization:
     permitted-calls-half-open: 5
     success-threshold-close: 0.8
   
-  # 增量同步引擎
-  sync:
+  # 增量同步引擎 (V6)
+  v6-sync:
     enabled: true
     batch-size: 100
     flush-interval-ms: 50
@@ -685,8 +854,8 @@ optimization:
     retry-count: 3
     conflict-resolution: LAST_WRITER_WINS
   
-  # 缓存健康监测
-  health:
+  # 缓存健康监测 (V6)
+  v6-health:
     enabled: true
     check-interval-ms: 5000
     timeout-ms: 3000
@@ -1048,57 +1217,10 @@ v17:
       max-concurrent-calls: 1000
       max-wait-duration: 100ms
 
-# 日志配置
-logging:
-  level:
-    root: INFO
-    com.ecommerce.cache: DEBUG
-    com.ecommerce.cache.optimization: DEBUG
-    com.ecommerce.cache.optimization.v6: DEBUG
-    com.ecommerce.cache.optimization.v7: DEBUG
-    com.ecommerce.cache.optimization.v15: DEBUG
-    com.ecommerce.cache.optimization.v16: DEBUG
-    io.lettuce.core: WARN
-    org.redisson: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+# 日志配置（已在上方统一定义，此处保留兼容性注释）
+# logging -> 见上方 logging: 块
 
----
-# 开发环境配置
-spring:
-  config:
-    activate:
-      on-profile: dev
-
-  data:
-    redis:
-      cluster:
-        nodes:
-          - localhost:7001
-          - localhost:7002
-          - localhost:7003
-
-memcached:
-  primary:
-    servers: localhost:11211
-  backup:
-    servers: localhost:11212
-
-rocketmq:
-  name-server: localhost:9876
-
-logging:
-  level:
-    com.ecommerce.cache: DEBUG
-
----
-# 生产环境配置
-spring:
-  config:
-    activate:
-      on-profile: prod
-
-logging:
-  level:
-    root: WARN
-    com.ecommerce.cache: INFO
+# 注意：环境特定配置已迁移至独立文件
+# - application-dev.yml  （开发环境）
+# - application-prod.yml （生产环境）
+# - application-test.yml （测试环境）

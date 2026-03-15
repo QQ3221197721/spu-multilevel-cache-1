@@ -1,0 +1,26 @@
+# ========================================
+# Logstash 基础配置
+# ========================================
+
+http.host: "0.0.0.0"
+http.port: 9600
+
+# 管道配置
+path.config: /usr/share/logstash/pipeline
+
+# 性能调优
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50
+
+# 队列配置（持久化队列防丢数据）
+queue.type: persisted
+queue.max_bytes: 1gb
+queue.checkpoint.writes: 1024
+
+# 日志
+log.level: info
+log.format: json
+
+# 监控
+monitoring.enabled: false

@@ -1,0 +1,81 @@
+# ============================================================
+# Istio DestinationRule — 负载均衡 + 熔断 + 连接池 + 异常检测
+# ============================================================
+# 定义到 spu-cache-service 的流量策略：
+#   - 负载均衡: ROUND_ROBIN + 一致性哈希（按 header）
+#   - 连接池: HTTP/TCP 连接数限制
+#   - 异常检测: 自动驱逐不健康实例
+#   - TLS: ISTIO_MUTUAL（与 PeerAuthentication 配合）
+# ============================================================
+
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: spu-cache-service
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  host: spu-cache-service.spu-cache.svc.cluster.local
+  trafficPolicy:
+    # 连接池配置
+    connectionPool:
+      tcp:
+        maxConnections: 1000
+        connectTimeout: 3s
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+          probes: 9
+      http:
+        h2UpgradePolicy: DEFAULT
+        http1MaxPendingRequests: 1024
+        http2MaxRequests: 1024
+        maxRequestsPerConnection: 100
+        maxRetries: 3
+        idleTimeout: 60s
+    # 负载均衡
+    loadBalancer:
+      simple: ROUND_ROBIN
+      localityLbSetting:
+        enabled: true
+        # 同 AZ 优先，失败时降级到跨 AZ
+        distribute:
+          - from: "*"
+            to:
+              "*": 100
+    # 异常检测（Outlier Detection）— 自动驱逐不健康 Pod
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 30
+      minHealthPercent: 70
+      splitExternalLocalOriginErrors: true
+      consecutiveLocalOriginFailures: 5
+      consecutiveGatewayErrors: 5
+    # TLS 策略
+    tls:
+      mode: ISTIO_MUTUAL
+  # 子集定义（用于金丝雀/蓝绿部署）
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+      trafficPolicy:
+        connectionPool:
+          http:
+            http2MaxRequests: 2048
+    - name: canary
+      labels:
+        version: canary
+      trafficPolicy:
+        connectionPool:
+          http:
+            http2MaxRequests: 512
+        outlierDetection:
+          # 金丝雀更严格的异常检测
+          consecutive5xxErrors: 3
+          interval: 5s
+          baseEjectionTime: 60s

@@ -1,0 +1,77 @@
+# ============================================================
+# 开发环境配置覆盖 (Dev)
+# 用法: helm install spu-cache . -f values-dev.yaml
+# ============================================================
+
+global:
+  environment: dev
+
+replicaCount: 1
+
+image:
+  pullPolicy: IfNotPresent
+
+env:
+  SPRING_PROFILES_ACTIVE: "dev"
+  JAVA_OPTS: "-Xms512m -Xmx512m -XX:+UseG1GC --enable-preview"
+  SEATA_ENABLED: "false"
+  SHARDING_ENABLED: "false"
+  ZIPKIN_ENABLED: "false"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+autoscaling:
+  enabled: false
+
+pdb:
+  enabled: false
+
+networkPolicy:
+  enabled: false
+
+ingress:
+  enabled: false
+
+configMap:
+  redis.cluster.nodes: "localhost:6379"
+  memcached.servers: "localhost:11211"
+  kafka.bootstrap.servers: "localhost:9092"
+  zipkin.endpoint: "http://localhost:9411/api/v2/spans"
+  apollo.meta: "http://localhost:8080"
+  es.uris: "http://localhost:9200"
+  logstash.host: "localhost"
+  canal.server.host: "localhost"
+
+secret:
+  mysql.url: "jdbc:mysql://localhost:3306/spu_cache_db?useSSL=false&serverTimezone=Asia/Shanghai"
+  mysql.username: "root"
+  mysql.password: "root"
+  mysql.slave.url: "jdbc:mysql://localhost:3306/spu_cache_db?useSSL=false&serverTimezone=Asia/Shanghai"
+  mysql.slave.username: "root"
+  mysql.slave.password: "root"
+  jwt.secret: "dev-jwt-secret-for-local-testing-only"
+  encryption.key: ""
+  apollo.portal.password: "apollo"
+  canal.username: "canal"
+  canal.password: "canal"
+
+canary:
+  enabled: false
+
+# 开发环境 Istio 编排
+istio:
+  enabled: false
+
+# 开发环境 eBPF
+ebpf:
+  enabled: false
+
+# 开发环境可启用混沌实验
+chaosMesh:
+  enabled: false

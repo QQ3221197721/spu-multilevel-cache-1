@@ -14,11 +14,27 @@ spec:
     metadata:
       labels:
         app: spu-cache-service
+        version: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/actuator/prometheus"
+        # Istio Sidecar 注入
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: "100m"
+        sidecar.istio.io/proxyMemory: "128Mi"
+        sidecar.istio.io/proxyCPULimit: "500m"
+        sidecar.istio.io/proxyMemoryLimit: "512Mi"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+          terminationDrainDuration: 30s
+        # eBPF 可观测性注解
+        cilium.io/hubble-visibility: "<Flow>/<Port>/<Protocol>"
+        ebpf.io/monitor: "true"
     spec:
+      serviceAccountName: spu-cache-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
       containers:
         - name: spu-cache-service
           image: spu-cache-service:latest
@@ -43,11 +59,11 @@ spec:
                 configMapKeyRef:
                   name: spu-cache-config
                   key: memcached.servers
-            - name: ROCKETMQ_NAMESRV
+            - name: KAFKA_BOOTSTRAP_SERVERS
               valueFrom:
                 configMapKeyRef:
                   name: spu-cache-config
-                  key: rocketmq.namesrv
+                  key: kafka.bootstrap.servers
             - name: MYSQL_URL
               valueFrom:
                 secretKeyRef:
@@ -63,6 +79,58 @@ spec:
                 secretKeyRef:
                   name: spu-cache-secret
                   key: mysql.password
+            # Zipkin 链路追踪
+            - name: ZIPKIN_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: zipkin.endpoint
+            - name: ZIPKIN_ENABLED
+              value: "true"
+            # ELK Logstash
+            - name: LOGSTASH_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: logstash.host
+            - name: LOGSTASH_PORT
+              value: "5000"
+            # Seata
+            - name: SEATA_ENABLED
+              value: "true"
+            # ShardingSphere 分库分表
+            - name: SHARDING_ENABLED
+              value: "${SHARDING_ENABLED:false}"
+            # JWT / 加密密钥
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: jwt.secret
+            - name: DATA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: encryption.key
+            # Apollo 配置中心
+            - name: APOLLO_META
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: apollo.meta
+            - name: APOLLO_CLUSTER
+              value: "default"
+            # Canal binlog 监听
+            - name: CANAL_SERVER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: canal.server.host
+            - name: MYSQL_SLAVE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.slave.url
           resources:
             requests:
               memory: "2Gi"
@@ -179,7 +247,21 @@ metadata:
 data:
   redis.cluster.nodes: "redis-cluster-0:6379,redis-cluster-1:6379,redis-cluster-2:6379"
   memcached.servers: "memcached-0:11211,memcached-1:11211,memcached-2:11211"
-  rocketmq.namesrv: "rocketmq-namesrv:9876"
+  kafka.bootstrap.servers: "kafka-0:9092,kafka-1:9092,kafka-2:9092"
+  zipkin.endpoint: "http://zipkin:9411/api/v2/spans"
+  apollo.meta: "http://apollo-configservice:8080"
+  logstash.host: "logstash-0"
+  mysql.slave.host: "mysql-slave-0"
+  canal.server.host: "canal-server"
+  es.uris: "http://elasticsearch:9200"
+  # 应用级配置
+  app.cache.l1.max-size: "10000"
+  app.cache.l1.ttl-seconds: "30"
+  app.cache.l2.ttl-seconds: "300"
+  app.cache.l3.ttl-seconds: "3600"
+  app.cache.warmup.enabled: "true"
+  app.rate-limit.global-qps: "50000"
+  app.rate-limit.ip-qps: "100"
 ---
 apiVersion: v1
 kind: Secret
@@ -191,3 +273,11 @@ stringData:
   mysql.url: "jdbc:mysql://mysql:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai"
   mysql.username: "spu_cache"
   mysql.password: "YourSecurePassword123!"
+  mysql.slave.url: "jdbc:mysql://mysql-slave:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=Asia/Shanghai"
+  mysql.slave.username: "spu_cache_ro"
+  mysql.slave.password: "YourSecureSlavePassword123!"
+  jwt.secret: "YourJwtSecret256BitKeyHere_ChangeInProduction!!"
+  encryption.key: "BASE64_AES256_KEY_CHANGE_IN_PRODUCTION"
+  apollo.portal.password: "YourApolloPassword!"
+  canal.username: "canal"
+  canal.password: "YourCanalPassword!"

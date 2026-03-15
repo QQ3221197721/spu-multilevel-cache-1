@@ -1,0 +1,39 @@
+===========================================================
+  SPU 多级缓存服务 — 部署成功
+===========================================================
+
+Chart:       {{ .Chart.Name }}-{{ .Chart.Version }}
+Release:     {{ .Release.Name }}
+Namespace:   {{ include "spu-cache.namespace" . }}
+Environment: {{ .Values.global.environment | default "dev" }}
+
+------- 访问方式 -------
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  https://{{ .host }}{{ (first .paths).path }}
+{{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "spu-cache.fullname" . }} 8080:{{ .Values.service.port }} -n {{ include "spu-cache.namespace" . }}
+  然后访问: http://localhost:8080/api/spu/detail/1
+{{- end }}
+
+------- 运维命令 -------
+
+# 查看 Pod 状态
+kubectl get pods -l app=spu-cache-service -n {{ include "spu-cache.namespace" . }}
+
+# 查看日志
+kubectl logs -l app=spu-cache-service -n {{ include "spu-cache.namespace" . }} --tail=100 -f
+
+# 查看 HPA 状态
+{{- if .Values.autoscaling.enabled }}
+kubectl get hpa {{ include "spu-cache.fullname" . }} -n {{ include "spu-cache.namespace" . }}
+{{- else }}
+HPA 未启用 (replicaCount={{ .Values.replicaCount }})
+{{- end }}
+
+# 升级部署
+helm upgrade {{ .Release.Name }} ./helm/spu-multilevel-cache -f values-{{ .Values.global.environment }}.yaml
+
+# 回滚
+helm rollback {{ .Release.Name }} [REVISION]

@@ -1,0 +1,158 @@
+# ============================================================
+# SPU 多级缓存服务 — 金丝雀部署清单
+# ============================================================
+# 用于 CI/CD 金丝雀阶段，接收 10% 生产流量进行验证
+# IMAGE_PLACEHOLDER / VERSION_PLACEHOLDER 由 CI 管道 sed 替换
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spu-cache-service-canary
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    version: canary
+    track: canary
+  annotations:
+    kubernetes.io/change-cause: "Canary deployment VERSION_PLACEHOLDER"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spu-cache-service
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: spu-cache-service
+        version: canary
+        track: canary
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      containers:
+        - name: spu-cache-service
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: JAVA_OPTS
+              value: "-Xms1g -Xmx1g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 --enable-preview"
+            - name: JAVA_TOOL_OPTIONS
+              value: "--enable-preview"
+            - name: CANARY_VERSION
+              value: "VERSION_PLACEHOLDER"
+            - name: REDIS_CLUSTER_NODES
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: redis.cluster.nodes
+            - name: MEMCACHED_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: memcached.servers
+            - name: ROCKETMQ_NAMESRV
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: rocketmq.namesrv
+            - name: MYSQL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.url
+            - name: MYSQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.password
+            # SkyWalking Agent
+            - name: SW_AGENT_ACTIVE
+              value: "true"
+            - name: SW_AGENT_NAME
+              value: "spu-detail-service-canary"
+            - name: SW_AGENT_COLLECTOR_BACKEND_SERVICES
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: skywalking.oap.address
+            # ELK Logstash
+            - name: LOGSTASH_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: spu-cache-config
+                  key: logstash.host
+            - name: LOGSTASH_PORT
+              value: "5000"
+            # Seata
+            - name: SEATA_ENABLED
+              value: "true"
+            # ShardingSphere
+            - name: SHARDING_ENABLED
+              value: "${SHARDING_ENABLED:false}"
+            - name: MYSQL_SLAVE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: spu-cache-secret
+                  key: mysql.slave.url
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /actuator/probes/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/probes/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/probes/startup
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+      # 金丝雀 Pod 尽量分布在不同节点
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - spu-cache-service
+                topologyKey: kubernetes.io/hostname

@@ -1,0 +1,185 @@
+# ============================================================
+# eBPF Exporter — 自定义内核级指标采集
+# ============================================================
+# 将 eBPF 程序采集的内核指标暴露为 Prometheus 格式
+# 指标范围：
+#   - TCP 连接建立/关闭延迟
+#   - 系统调用耗时分布
+#   - 网络包丢弃统计
+#   - 文件 I/O 延迟
+#   - 调度延迟（runqueue latency）
+# ============================================================
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-exporter
+  namespace: monitoring
+  labels:
+    app: ebpf-exporter
+    observability: ebpf
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-exporter
+  template:
+    metadata:
+      labels:
+        app: ebpf-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9435"
+    spec:
+      # eBPF 需要特权模式
+      hostPID: true
+      hostNetwork: true
+      containers:
+        - name: ebpf-exporter
+          image: cloudflare/ebpf_exporter:v2.3.0
+          args:
+            - --config.dir=/etc/ebpf-exporter
+            - --web.listen-address=:9435
+          ports:
+            - containerPort: 9435
+              name: metrics
+              hostPort: 9435
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_PTRACE
+                - NET_ADMIN
+                - BPF
+                - PERFMON
+          volumeMounts:
+            - name: ebpf-config
+              mountPath: /etc/ebpf-exporter
+              readOnly: true
+            - name: kernel-debug
+              mountPath: /sys/kernel/debug
+              readOnly: true
+            - name: kernel-tracing
+              mountPath: /sys/kernel/tracing
+              readOnly: true
+            - name: bpf-maps
+              mountPath: /sys/fs/bpf
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: ebpf-config
+          configMap:
+            name: ebpf-exporter-config
+        - name: kernel-debug
+          hostPath:
+            path: /sys/kernel/debug
+        - name: kernel-tracing
+          hostPath:
+            path: /sys/kernel/tracing
+        - name: bpf-maps
+          hostPath:
+            path: /sys/fs/bpf
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+---
+# eBPF Exporter 配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ebpf-exporter-config
+  namespace: monitoring
+  labels:
+    app: ebpf-exporter
+    observability: ebpf
+data:
+  # TCP 连接延迟追踪
+  tcp-connect-latency.yaml: |
+    programs:
+      - name: tcp_connect_latency
+        metrics:
+          histograms:
+            - name: ebpf_tcp_connect_latency_seconds
+              help: "TCP 连接建立延迟分布"
+              table: connect_latency
+              bucket_type: exp2
+              bucket_min: 1
+              bucket_max: 100000
+              labels:
+                - name: saddr
+                  size: 4
+                  decoders:
+                    - name: inet_ip
+                - name: daddr
+                  size: 4
+                  decoders:
+                    - name: inet_ip
+
+  # 系统调用耗时追踪
+  syscall-latency.yaml: |
+    programs:
+      - name: syscall_latency
+        metrics:
+          histograms:
+            - name: ebpf_syscall_latency_seconds
+              help: "系统调用耗时分布（微秒）"
+              table: syscall_latency
+              bucket_type: exp2
+              bucket_min: 1
+              bucket_max: 1000000
+              labels:
+                - name: syscall
+                  size: 8
+                  decoders:
+                    - name: uint
+
+  # 网络包丢弃监控
+  packet-drops.yaml: |
+    programs:
+      - name: packet_drops
+        metrics:
+          counters:
+            - name: ebpf_packet_drops_total
+              help: "内核网络包丢弃总数"
+              table: drop_count
+              labels:
+                - name: reason
+                  size: 4
+                  decoders:
+                    - name: uint
+
+  # 调度延迟（runqueue latency）
+  runqueue-latency.yaml: |
+    programs:
+      - name: runqueue_latency
+        metrics:
+          histograms:
+            - name: ebpf_runqueue_latency_seconds
+              help: "进程调度等待延迟分布（微秒）"
+              table: runq_latency
+              bucket_type: exp2
+              bucket_min: 1
+              bucket_max: 100000
+---
+# eBPF Exporter Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebpf-exporter
+  namespace: monitoring
+  labels:
+    app: ebpf-exporter
+    observability: ebpf
+spec:
+  clusterIP: None
+  selector:
+    app: ebpf-exporter
+  ports:
+    - port: 9435
+      targetPort: 9435
+      name: metrics

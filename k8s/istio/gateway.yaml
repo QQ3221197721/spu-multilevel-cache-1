@@ -1,0 +1,42 @@
+# ============================================================
+# Istio Gateway — Ingress 网关入口
+# ============================================================
+# 替代/补充 Nginx Ingress，提供 Istio 原生入口管理：
+#   - HTTPS TLS 终止
+#   - 与 VirtualService 配合进行流量路由
+# ============================================================
+
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: spu-cache-gateway
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  selector:
+    # 使用 Istio 默认的 ingress gateway
+    istio: ingressgateway
+  servers:
+    # HTTPS 入口
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: spu-cache-tls-credential
+      hosts:
+        - spu-cache.example.com
+        - "*.spu-cache.example.com"
+    # HTTP 自动重定向到 HTTPS
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      tls:
+        httpsRedirect: true
+      hosts:
+        - spu-cache.example.com
+        - "*.spu-cache.example.com"

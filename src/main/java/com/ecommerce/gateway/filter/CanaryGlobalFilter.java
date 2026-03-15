@@ -1,5 +1,6 @@
 package com.ecommerce.gateway.filter;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -14,6 +15,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * 灰度路由全局过滤器
  * 支持按比例、按用户白名单、按 Header 进行灰度分流
+ * 配置参数通过 application.yml / Nacos 配置中心动态注入
  */
 @Component
 public class CanaryGlobalFilter implements GlobalFilter, Ordered {
@@ -21,25 +23,25 @@ public class CanaryGlobalFilter implements GlobalFilter, Ordered {
     private static final String CANARY_HEADER = "canary";
     private static final String USER_ID_HEADER = "X-User-Id";
     
-    // 灰度比例 10%
-    private static final int CANARY_WEIGHT = 10;
+    @Value("${canary.enabled:false}")
+    private boolean canaryEnabled;
     
-    // 灰度用户白名单
-    private final List<String> whitelistUsers = List.of(
-        "test_user_001", 
-        "test_user_002",
-        "test_user_003"
-    );
-
-    // 灰度 IP 前缀
-    private final List<String> whitelistIpPrefixes = List.of(
-        "10.0.",
-        "172.16.",
-        "192.168."
-    );
+    @Value("${canary.weight:10}")
+    private int canaryWeight;
+    
+    @Value("${canary.whitelist-users:}")
+    private List<String> whitelistUsers;
+    
+    @Value("${canary.whitelist-ips:10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}")
+    private List<String> whitelistIpCidrs;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // 灰度开关关闭时直接放行
+        if (!canaryEnabled) {
+            return chain.filter(exchange);
+        }
+        
         ServerHttpRequest request = exchange.getRequest();
         
         // 1. 检查是否已有 canary header（显式指定）
@@ -61,7 +63,7 @@ public class CanaryGlobalFilter implements GlobalFilter, Ordered {
         }
         
         // 4. 按权重随机分配
-        boolean isCanary = ThreadLocalRandom.current().nextInt(100) < CANARY_WEIGHT;
+        boolean isCanary = ThreadLocalRandom.current().nextInt(100) < canaryWeight;
         if (isCanary) {
             return addCanaryHeaderAndProceed(exchange, chain);
         }
@@ -98,8 +100,15 @@ public class CanaryGlobalFilter implements GlobalFilter, Ordered {
     }
 
     private boolean isWhitelistIp(String ip) {
-        for (String prefix : whitelistIpPrefixes) {
-            if (ip.startsWith(prefix)) {
+        for (String cidr : whitelistIpCidrs) {
+            if (cidr.contains("/")) {
+                // 简化 CIDR 匹配：取网络前缀比对
+                String prefix = cidr.substring(0, cidr.indexOf('/'));
+                String[] parts = prefix.split("\\.");
+                if (ip.startsWith(parts[0] + ".")) {
+                    return true;
+                }
+            } else if (ip.startsWith(cidr)) {
                 return true;
             }
         }

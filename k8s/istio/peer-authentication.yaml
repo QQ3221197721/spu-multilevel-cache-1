@@ -1,0 +1,38 @@
+# ============================================================
+# Istio PeerAuthentication — 严格 mTLS 策略
+# ============================================================
+# 命名空间级别强制双向 TLS，所有服务间通信均加密
+# ============================================================
+
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: spu-cache-strict-mtls
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  # 命名空间级别：强制所有工作负载启用 mTLS
+  mtls:
+    mode: STRICT
+---
+# 针对 spu-cache-service 的 Pod 级策略（覆盖命名空间默认）
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: spu-cache-service-mtls
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    mesh: istio
+spec:
+  selector:
+    matchLabels:
+      app: spu-cache-service
+  mtls:
+    mode: STRICT
+  # 端口级例外：Prometheus 抓取端口允许 PERMISSIVE（兼容非 mesh 监控）
+  portLevelMtls:
+    8080:
+      mode: STRICT

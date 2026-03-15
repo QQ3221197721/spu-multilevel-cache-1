@@ -1,0 +1,144 @@
+# ============================================================
+# Chaos Mesh — 网络混沌实验
+# ============================================================
+# 测试 spu-cache-service 在网络异常场景下的表现：
+#   1. 网络延迟 — Redis/MySQL 访问延迟增加
+#   2. 网络分区 — 模拟中间件不可达
+#   3. 丢包 — 随机丢弃网络包
+#   4. 带宽限制 — 模拟网络拥塞
+#   5. DNS 故障 — DNS 解析失败
+# ============================================================
+
+# ---- 实验1：Redis 访问延迟（模拟跨 AZ 延迟） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: spu-cache-redis-delay
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: network
+    experiment: redis-delay
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  delay:
+    latency: "50ms"
+    correlation: "50"
+    jitter: "20ms"
+  direction: to
+  target:
+    selector:
+      namespaces:
+        - spu-cache
+      labelSelectors:
+        app: redis-cluster
+    mode: all
+  duration: "120s"
+---
+# ---- 实验2：MySQL 网络分区（模拟数据库不可达） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: spu-cache-mysql-partition
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: network
+    experiment: mysql-partition
+spec:
+  action: partition
+  mode: all
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  direction: both
+  target:
+    selector:
+      namespaces:
+        - spu-cache
+      labelSelectors:
+        app: mysql
+    mode: all
+  duration: "60s"
+---
+# ---- 实验3：全局丢包（模拟网络抖动） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: spu-cache-packet-loss
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: network
+    experiment: packet-loss
+spec:
+  action: loss
+  mode: fixed-percent
+  value: "50"
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  loss:
+    loss: "15"
+    correlation: "25"
+  direction: both
+  duration: "90s"
+---
+# ---- 实验4：带宽限制（模拟网络拥塞） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: spu-cache-bandwidth-limit
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: network
+    experiment: bandwidth-limit
+spec:
+  action: bandwidth
+  mode: all
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  bandwidth:
+    rate: "10mbps"
+    limit: 20000
+    buffer: 10000
+  direction: both
+  duration: "120s"
+---
+# ---- 实验5：DNS 故障（模拟 DNS 解析失败） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: DNSChaos
+metadata:
+  name: spu-cache-dns-failure
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: network
+    experiment: dns-failure
+spec:
+  action: error
+  mode: all
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  # 仅对特定域名注入 DNS 故障
+  patterns:
+    - "redis-cluster.spu-cache.svc.cluster.local"
+    - "mysql.spu-cache.svc.cluster.local"
+  duration: "30s"

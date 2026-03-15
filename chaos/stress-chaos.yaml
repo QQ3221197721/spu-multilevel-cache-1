@@ -1,0 +1,86 @@
+# ============================================================
+# Chaos Mesh — 压力混沌实验
+# ============================================================
+# 测试 spu-cache-service 在资源压力下的表现：
+#   1. CPU 压力 — 模拟 CPU 争用
+#   2. 内存压力 — 模拟内存不足（OOM 边界测试）
+# ============================================================
+
+# ---- 实验1：CPU 压力（模拟 CPU 争用） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: spu-cache-cpu-stress
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: stress
+    experiment: cpu-stress
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  stressors:
+    cpu:
+      workers: 4
+      load: 80       # 80% CPU 负载
+  duration: "120s"
+  containerNames:
+    - spu-multilevel-cache
+---
+# ---- 实验2：内存压力（模拟内存不足） ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: spu-cache-memory-stress
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: stress
+    experiment: memory-stress
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  stressors:
+    memory:
+      workers: 2
+      size: "1024MB"   # 持续分配 1GB 内存
+  duration: "90s"
+  containerNames:
+    - spu-multilevel-cache
+---
+# ---- 实验3：CPU + 内存复合压力 ----
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: spu-cache-combined-stress
+  namespace: spu-cache
+  labels:
+    app: spu-cache-service
+    chaos-type: stress
+    experiment: combined-stress
+spec:
+  mode: fixed-percent
+  value: "50"
+  selector:
+    namespaces:
+      - spu-cache
+    labelSelectors:
+      app: spu-cache-service
+  stressors:
+    cpu:
+      workers: 2
+      load: 60
+    memory:
+      workers: 1
+      size: "512MB"
+  duration: "60s"
+  containerNames:
+    - spu-multilevel-cache

@@ -1,0 +1,208 @@
+# ========================================
+# SPU 多级缓存服务 - 生产环境配置
+# ========================================
+
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  # 数据源配置 - 生产环境（从环境变量读取）
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://mysql-master:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USERNAME:spu_cache}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  # JPA 配置 - 生产环境
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  # Kafka - 生产环境
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka-0:9092,kafka-1:9092,kafka-2:9092}
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+      compression-type: lz4
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 64
+
+  # Elasticsearch - 生产环境
+  elasticsearch:
+    uris: ${ES_URIS:http://elasticsearch:9200}
+    connection-timeout: 5s
+    socket-timeout: 30s
+
+  # Redis Cluster 配置 - 生产环境
+  data:
+    redis:
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:redis-0:6379,redis-1:6379,redis-2:6379,redis-3:6379,redis-4:6379,redis-5:6379}
+        max-redirects: 3
+      password: ${REDIS_PASSWORD}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 500
+          max-idle: 100
+          min-idle: 50
+          max-wait: 1000ms
+
+# Memcached 配置 - 生产环境
+memcached:
+  servers: ${MEMCACHED_SERVERS:memcached-0:11211,memcached-1:11211,memcached-2:11211}
+  pool-size: 50
+  op-timeout: 1000
+
+# Kafka 消息队列 - 生产环境
+kafka:
+  dead-letter:
+    enabled: true
+    alert-enabled: true
+    persist-enabled: true
+  outbox:
+    enabled: true
+    retry-interval-ms: 5000
+    max-retry: 5
+    cleanup-days: 14
+
+# 缓存配置 - 生产环境
+cache:
+  l1:
+    max-size: 50000
+    expire-seconds: 60
+    initial-capacity: 5000
+  l2:
+    default-ttl-seconds: 600
+  l3:
+    default-ttl-seconds: 1800
+  bloom:
+    expected-insertions: 100000000
+    false-probability: 0.005
+  hot-key:
+    qps-threshold: 5000
+    window-size-seconds: 10
+    shard-count: 10
+
+# 日志级别 - 生产环境
+logging:
+  level:
+    root: WARN
+    com.ecommerce.cache: INFO
+    org.springframework: WARN
+    org.apache.kafka: WARN
+    com.alibaba.csp.sentinel: WARN
+    io.seata: INFO
+  # ELK - 生产环境 Logstash 集群
+  logstash:
+    host: ${LOGSTASH_HOST:logstash-0}
+    port: ${LOGSTASH_PORT:5000}
+
+# Seata - 生产环境（Apollo 注册）
+seata:
+  enabled: ${SEATA_ENABLED:true}
+  registry:
+    type: file
+  config:
+    type: file
+
+# Zipkin - 生产环境
+zipkin:
+  endpoint: ${ZIPKIN_ENDPOINT:http://zipkin:9411/api/v2/spans}
+  enabled: ${ZIPKIN_ENABLED:true}
+
+# Apollo - 生产环境
+apollo:
+  meta: ${APOLLO_META:http://apollo-configservice:8080}
+  cluster: ${APOLLO_CLUSTER:prod}
+
+# ShardingSphere - 生产环境（可选启用）
+sharding:
+  enabled: ${SHARDING_ENABLED:false}
+  master:
+    url: ${MYSQL_URL:jdbc:mysql://mysql-master:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USERNAME:spu_cache}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+  slave:
+    url: ${MYSQL_SLAVE_URL:jdbc:mysql://mysql-slave:3306/spu_cache_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_SLAVE_USERNAME:spu_cache_ro}
+    password: ${MYSQL_SLAVE_PASSWORD}
+    hikari:
+      maximum-pool-size: 80
+      minimum-idle: 20
+  table:
+    spu-shard-count: 16
+    spu-sharding-column: spu_id
+    spu-algorithm: MOD
+  read-write-split:
+    enabled: true
+    load-balancer: ROUND_ROBIN
+  props:
+    sql-show: false
+
+# Canal - 生产环境（完整配置）
+canal:
+  enabled: ${CANAL_ENABLED:true}
+  health-check-url: http://${CANAL_HOST:canal-server}:11112/metrics
+  consistency:
+    delayed-double-delete-enabled: true
+    delayed-delete-ms: 1000
+    version-check-enabled: true
+    version-ttl-seconds: 7200
+    audit-enabled: true
+    audit-sample-rate: 0.01
+    audit-window-seconds: 120
+    audit-auto-fix: true
+    max-binlog-delay-alert-seconds: 5
+
+# Actuator 端点 - 生产环境限制
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# 服务器配置 - 生产环境
+server:
+  tomcat:
+    threads:
+      max: 500
+      min-spare: 50
+    accept-count: 200
+    max-connections: 10000
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/plain
+    min-response-size: 1024
+
+# JWT 安全配置 - 生产环境（从环境变量/Apollo配置中心读取）
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: ${JWT_EXPIRATION:3600000}
+    issuer: spu-detail-service

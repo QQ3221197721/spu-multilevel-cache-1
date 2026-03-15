@@ -20,18 +20,29 @@ spring:
       ddl-auto: create-drop
     show-sql: true
 
-  # 禁用 Redis（测试环境使用 Mock）
+  # 禁用 Flyway（测试环境由 JPA ddl-auto 自动建表）
+  flyway:
+    enabled: false
+
+  # 禁用 Nacos/Apollo（测试环境不需要服务注册和配置中心）
+  cloud:
+    discovery:
+      enabled: false
+
+  # 禁用 Kafka（测试环境使用 Mock）
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
 
-# RocketMQ 测试配置（禁用）
-rocketmq:
-  name-server: localhost:9876
-  producer:
-    group: test_group
-    send-message-timeout: 1000
+# Kafka 测试配置（禁用）
+kafka:
+  dead-letter:
+    enabled: false
+  outbox:
+    enabled: false
 
 # 缓存配置 - 测试环境
 cache:
@@ -47,6 +58,39 @@ logging:
   level:
     com.ecommerce.cache: DEBUG
     org.springframework: INFO
+    io.seata: OFF
+    org.apache.kafka: OFF
+    com.alibaba.csp.sentinel: OFF
+  # 测试环境禁用 Logstash
+  logstash:
+    host: localhost
+    port: 5000
+
+# Seata - 测试环境禁用
+seata:
+  enabled: false
+
+# Zipkin - 测试环境禁用
+zipkin:
+  enabled: false
+
+# Apollo - 测试环境禁用
+apollo:
+  bootstrap:
+    enabled: false
+
+# Sentinel - 测试环境禁用
+sentinel:
+  transport:
+    dashboard: localhost:8858
+
+# ShardingSphere - 测试环境禁用
+sharding:
+  enabled: false
+
+# Canal - 测试环境禁用
+canal:
+  enabled: false
 
 # Actuator
 management:
@@ -54,3 +98,10 @@ management:
     web:
       exposure:
         include: "*"
+
+# 测试环境安全配置
+security:
+  jwt:
+    secret: testSecretKeyForUnitTestingOnlyDoNotUseInProduction2024
+    expiration-ms: 86400000
+    issuer: spu-detail-service-test
